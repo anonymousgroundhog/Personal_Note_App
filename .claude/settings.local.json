@@ -29,7 +29,17 @@
       "Bash(timeout 10 firefox --headless --screenshot /tmp/app_fixed.png \"http://localhost:5178\")",
       "Bash(grep -v \"^$\\\\|headless\\\\|BiDi\\\\|extension\")",
       "Bash(npm list:*)",
-      "Bash(git-lfs --version)"
+      "Bash(git-lfs --version)",
+      "Bash(ip addr:*)",
+      "Bash(pkill -f vite)",
+      "Bash(sudo ufw:*)",
+      "Bash(sudo iptables:*)",
+      "Bash(curl:*)",
+      "Bash(dpkg -l libnss3-tools)",
+      "Bash(sudo apt-get:*)",
+      "Bash(chmod +x /tmp/mkcert)",
+      "Bash(/tmp/mkcert --version)",
+      "Bash(ls /home/sean/Documents/Projects/Personal/Personal_Note_App/*.md)"
     ]
   }
 }

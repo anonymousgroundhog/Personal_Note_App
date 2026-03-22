@@ -12,6 +12,14 @@ A local-first markdown note-taking app with Obsidian-style editing, Gantt chart 
 - **ICS Import** — Import `.ics` files exported from Google Calendar, Outlook, or any calendar app
 - **Google Calendar** — Connect via OAuth2 PKCE (requires setup — see below)
 - **Outlook Calendar** — Connect via Microsoft OAuth2 PKCE (requires setup — see below)
+- **Graph View** — Visual network of wiki-link connections between notes
+- **Tasks View** — Aggregated checklist of all `- [ ]` items across the vault
+- **Gantt subtask collapse** — Click the ▶/▼ toggle on any parent task to show/hide its subtasks
+- **Tag autocomplete** — Typing in the tag panel suggests existing vault tags with keyboard navigation
+- **AI Chat** — Connect to any OpenAI-compatible server (OpenWebUI, Ollama, LM Studio); select a model and query with note context injected
+- **GSD (Getting Stuff Done)** — Inbox, Next Actions, Projects, Waiting For, Someday/Maybe, Done tabs; imports from Gantt; weekly review dashboard
+- **Diagrams** — Mermaid-based diagram editor
+- **LAN access** — Serve over HTTPS to other machines on your network (see below)
 - **Dark / Light mode**
 - **Local-first** — All data lives in your markdown files; no database, no server
 
@@ -19,8 +27,9 @@ A local-first markdown note-taking app with Obsidian-style editing, Gantt chart 
 
 ### Requirements
 
-- Chrome or Edge (requires [File System Access API](https://caniuse.com/native-filesystem-api))
 - Node.js 18+
+- Chrome or Edge recommended for full read/write vault access (requires [File System Access API](https://caniuse.com/native-filesystem-api))
+- Firefox/Safari: read-only fallback via `<input>` picker
 
 ### Run locally
 
@@ -29,7 +38,51 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` and click **Open Vault Folder** to select your notes directory.
+Open `https://localhost:5173` and click **Open Vault Folder** to select your notes directory.
+
+> **Vault folder restriction** — Chrome blocks opening certain sensitive directories (Desktop, home root, Downloads) via the directory picker. If you see "can't open this folder because it contains system files", the app will automatically fall back to a file-input picker. To avoid this, store your notes in a subfolder (e.g. `~/Documents/Notes`).
+
+### LAN access (other devices on your network)
+
+The dev server runs over HTTPS using a locally-trusted certificate so that the File System Access API works on remote browsers.
+
+**One-time setup (on the host machine):**
+
+```bash
+# Download mkcert
+wget https://github.com/FiloSottile/mkcert/releases/download/v1.4.4/mkcert-v1.4.4-linux-amd64 -O /tmp/mkcert
+chmod +x /tmp/mkcert
+
+# Generate certs for your LAN IP (replace with your actual IP)
+mkdir -p certs && cd certs
+CAROOT=$(pwd) /tmp/mkcert -cert-file cert.pem -key-file key.pem 192.168.1.x localhost 127.0.0.1
+cd ..
+```
+
+Then start the server — it will bind to all interfaces automatically:
+
+```bash
+npm run dev
+```
+
+Access from another device at `https://192.168.1.x:5173`.
+
+**Trust the certificate on remote devices:**
+
+The remote browser will show a cert warning until the CA is trusted. The easiest way:
+
+1. Visit `https://192.168.1.x:5173` on the remote device, click **Advanced → Proceed**
+2. In the sidebar, click the **"download & install the CA cert"** link — saves `rootCA.pem`
+3. Open `chrome://settings/certificates` → **Authorities** → **Import** → select `rootCA.pem` → check **Trust this certificate for identifying websites** → OK
+4. Restart Chrome and reload the app — the cert warning is gone and full vault access works
+
+On Linux/Ubuntu remote machines you can also install system-wide:
+```bash
+sudo cp rootCA.pem /usr/local/share/ca-certificates/personal-note-app.crt
+sudo update-ca-certificates
+```
+
+> **Note:** `certs/rootCA-key.pem` is the CA private key — keep it secret and do not commit it to a public repository. Add `certs/` to `.gitignore` if needed.
 
 ## Note Frontmatter Reference
 
@@ -159,3 +212,6 @@ Output is in `dist/`. Serve it with any static file server.
 | Gantt | frappe-gantt |
 | Calendar | FullCalendar 6 |
 | ICS parsing | ical.js |
+| Graph | Cytoscape.js |
+| Diagrams | Mermaid |
+| TLS (dev) | mkcert |

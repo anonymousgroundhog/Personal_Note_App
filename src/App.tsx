@@ -8,13 +8,16 @@ import GraphView from './features/graph/GraphView'
 import TasksView from './features/tasks/TasksView'
 import SyncView from './features/sync/SyncView'
 import DiagramEditor from './features/diagram/DiagramEditor'
+import AiView from './features/ai/AiView'
+import GsdView from './features/gsd/GsdView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
-import { useVaultStore } from './stores/vaultStore'
+import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
 import { FolderOpen } from 'lucide-react'
 
 function WelcomeScreen() {
   const { openVault } = useVaultStore()
+  const fsSupported = isFsApiSupported()
   return (
     <div className="flex-1 flex flex-col items-center justify-center gap-6 bg-white dark:bg-surface-900 text-gray-600 dark:text-gray-400">
       <div className="text-center">
@@ -28,6 +31,11 @@ function WelcomeScreen() {
         <FolderOpen size={22} />
         Open Vault Folder
       </button>
+      {!fsSupported && (
+        <div className="max-w-sm text-center px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg text-sm text-amber-700 dark:text-amber-300">
+          Your browser doesn't support the File System API. You can still open a folder — notes will be loaded read-only. For full save support, use Chrome or Edge.
+        </div>
+      )}
       <div className="text-sm text-gray-400 max-w-sm text-center">
         Select a folder containing your markdown notes. All .md files will be indexed automatically.
       </div>
@@ -50,7 +58,8 @@ function WelcomeScreen() {
 
 export default function App() {
   const { activeView, darkMode } = useUiStore()
-  const { rootHandle } = useVaultStore()
+  const { rootHandle, fallbackMode } = useVaultStore()
+  const hasVault = !!(rootHandle || fallbackMode)
 
   useEffect(() => {
     if (darkMode) document.body.classList.add('dark')
@@ -65,7 +74,11 @@ export default function App() {
           <SyncView />
         ) : activeView === 'diagram' ? (
           <DiagramEditor />
-        ) : !rootHandle ? (
+        ) : activeView === 'ai' ? (
+          <AiView />
+        ) : activeView === 'gsd' ? (
+          <GsdView />
+        ) : !hasVault ? (
           <WelcomeScreen />
         ) : (
           <>

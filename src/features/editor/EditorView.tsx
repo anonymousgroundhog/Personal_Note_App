@@ -17,6 +17,9 @@ export default function EditorView() {
   const [dirty, setDirty] = useState(false)
   const [tagInput, setTagInput] = useState('')
   const [showTagPanel, setShowTagPanel] = useState(false)
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false)
+  const [tagSuggestionIdx, setTagSuggestionIdx] = useState(0)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
@@ -49,12 +52,13 @@ export default function EditorView() {
     setActiveNote(filename)
   }
 
-  const handleAddTag = async () => {
-    if (!activeNotePath || !tagInput.trim()) return
+  const handleAddTag = useCallback(async (override?: string) => {
+    const value = (override ?? tagInput).trim()
+    if (!activeNotePath || !value) return
     const { frontmatter, body } = parseFrontmatter(content)
     const tags = (frontmatter.tags as string[] || [])
-    if (!tags.includes(tagInput.trim())) {
-      tags.push(tagInput.trim())
+    if (!tags.includes(value)) {
+      tags.push(value)
     }
     const newFrontmatter = { ...frontmatter, tags }
     const yaml = Object.entries(newFrontmatter).map(([k, v]) => {
@@ -66,6 +70,39 @@ export default function EditorView() {
     const newContent = `---\n${yaml}\n---\n\n${body}`
     handleChange(newContent)
     setTagInput('')
+    setShowTagSuggestions(false)
+    setTagSuggestionIdx(0)
+  }, [activeNotePath, tagInput, content, handleChange])
+
+  const handleRemoveTag = useCallback(async (tagToRemove: string) => {
+    if (!activeNotePath) return
+    const { frontmatter, body } = parseFrontmatter(content)
+    const tags = ((frontmatter.tags as string[] || [])).filter(t => t !== tagToRemove)
+    const newFrontmatter = { ...frontmatter, tags }
+    const yaml = Object.entries(newFrontmatter).map(([k, v]) => {
+      if (Array.isArray(v)) return `${k}:\n${v.map(i => `  - ${i}`).join('\n')}`
+      return `${k}: ${v}`
+    }).join('\n')
+    handleChange(`---\n${yaml}\n---\n\n${body}`)
+  }, [activeNotePath, content, handleChange])
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showTagSuggestions || filteredTagSuggestions.length === 0) {
+      if (e.key === 'Enter') { e.preventDefault(); handleAddTag() }
+      return
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      setTagSuggestionIdx(i => Math.min(i + 1, filteredTagSuggestions.length - 1))
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      setTagSuggestionIdx(i => Math.max(i - 1, 0))
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      handleAddTag(filteredTagSuggestions[tagSuggestionIdx])
+    } else if (e.key === 'Escape') {
+      setShowTagSuggestions(false)
+    }
   }
 
   const [searchQuery, setSearchQuery] = useState('')
@@ -91,6 +128,24 @@ export default function EditorView() {
       })
       .slice(0, 12)
   }, [index, searchQuery])
+
+  // Collect all tags across the vault for autosuggestion
+  const allVaultTags = useMemo(() => {
+    const freq = new Map<string, number>()
+    for (const note of index.values()) {
+      const t = note.frontmatter?.tags as string[] | undefined
+      if (Array.isArray(t)) t.forEach(tag => freq.set(tag, (freq.get(tag) ?? 0) + 1))
+    }
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag]) => tag)
+  }, [index])
+
+  const filteredTagSuggestions = useMemo(() => {
+    const q = tagInput.trim().toLowerCase()
+    if (!q) return allVaultTags.slice(0, 8)
+    return allVaultTags.filter(t => t.toLowerCase().includes(q) && t.toLowerCase() !== q).slice(0, 8)
+  }, [allVaultTags, tagInput])
 
   const { frontmatter } = parseFrontmatter(content)
   const tags = (frontmatter.tags as string[] || [])
@@ -147,7 +202,8 @@ export default function EditorView() {
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                 {suggestions.map(({ path, note }) => {
-                  const tags = (note.frontmatter?.tags as string[] | undefined) || []
+                  const rawTags = note.frontmatter?.tags
+                  const tags: string[] = Array.isArray(rawTags) ? rawTags : rawTags ? [String(rawTags)] : []
                   const name = note.name || path.split('/').pop()?.replace(/\.md$/, '') || path
                   return (
                     <button
@@ -234,20 +290,65 @@ export default function EditorView() {
 
       {/* Tag panel */}
       {showTagPanel && (
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-gray-50 dark:bg-surface-800 border-b border-gray-200 dark:border-gray-700 flex-wrap">
-          {tags.map(tag => (
-            <span key={tag} className="px-2 py-0.5 bg-accent-500/10 text-accent-500 rounded-full text-xs">
-              #{tag}
-            </span>
-          ))}
-          <input
-            type="text"
-            value={tagInput}
-            onChange={e => setTagInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleAddTag() }}
-            placeholder="Add tag..."
-            className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-accent-500 w-28"
-          />
+        <div className="px-4 py-1.5 bg-gray-50 dark:bg-surface-800 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {tags.map(tag => (
+              <span key={tag} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-accent-500/10 text-accent-500 rounded-full text-xs group">
+                #{tag}
+                <button
+                  onClick={() => handleRemoveTag(tag)}
+                  className="hover:bg-accent-500/20 rounded-full p-0.5 opacity-60 hover:opacity-100"
+                  title={`Remove #${tag}`}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+            <div className="relative">
+              <input
+                ref={tagInputRef}
+                type="text"
+                value={tagInput}
+                onChange={e => {
+                  setTagInput(e.target.value)
+                  setShowTagSuggestions(true)
+                  setTagSuggestionIdx(0)
+                }}
+                onFocus={() => setShowTagSuggestions(true)}
+                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
+                onKeyDown={handleTagKeyDown}
+                placeholder="Add tag…"
+                className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-accent-500 w-32"
+              />
+              {showTagSuggestions && filteredTagSuggestions.length > 0 && (
+                <div className="absolute top-full left-0 mt-0.5 bg-white dark:bg-surface-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg z-50 min-w-36 py-0.5">
+                  {filteredTagSuggestions.map((tag, i) => (
+                    <button
+                      key={tag}
+                      onMouseDown={e => { e.preventDefault(); handleAddTag(tag) }}
+                      className={`w-full text-left px-3 py-1 text-xs flex items-center gap-1.5 ${
+                        i === tagSuggestionIdx
+                          ? 'bg-accent-500 text-white'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600'
+                      }`}
+                    >
+                      <Tag size={9} />
+                      {tag}
+                    </button>
+                  ))}
+                  {tagInput.trim() && !allVaultTags.some(t => t.toLowerCase() === tagInput.trim().toLowerCase()) && (
+                    <button
+                      onMouseDown={e => { e.preventDefault(); handleAddTag() }}
+                      className="w-full text-left px-3 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-600 border-t border-gray-100 dark:border-gray-600 flex items-center gap-1.5"
+                    >
+                      <Plus size={9} />
+                      Create "{tagInput.trim()}"
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

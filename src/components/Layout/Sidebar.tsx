@@ -1,8 +1,8 @@
-import React from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow } from 'lucide-react'
+import React, { useRef } from 'react'
+import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
-import { useVaultStore } from '../../stores/vaultStore'
+import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
 import FileTree from './FileTree'
 
 const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
@@ -14,21 +14,52 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?
   { view: 'tasks',    icon: <CheckSquare size={18} />,  label: 'Tasks' },
   { view: 'sync',     icon: <Github size={18} />,       label: 'Sync' },
   { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams', section: 'Tools' },
+  { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD' },
+  { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat' },
 ]
 
 export default function Sidebar() {
   const { activeView, setActiveView, sidebarOpen, toggleSidebar, darkMode, toggleDarkMode, setCommandPaletteOpen } = useUiStore()
-  const { rootHandle, openVault, fileTree } = useVaultStore()
+  const { rootHandle, fallbackMode, fallbackName, openVault, openVaultFallback, fileTree } = useVaultStore()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const vaultName = rootHandle?.name || (fallbackMode ? fallbackName : null)
+  const hasVault = !!(rootHandle || fallbackMode)
+
+  const handleOpenVault = () => {
+    if (isFsApiSupported()) {
+      openVault()
+    } else {
+      fileInputRef.current?.click()
+    }
+  }
 
   return (
     <div
       className={`flex flex-col h-full bg-gray-100 dark:bg-surface-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-200 ${sidebarOpen ? 'w-64' : 'w-12'}`}
     >
+      {/* Hidden fallback file input */}
+      <input
+        id="vault-file-input"
+        ref={fileInputRef}
+        type="file"
+        // @ts-expect-error webkitdirectory is not in the standard types
+        webkitdirectory=""
+        multiple
+        className="hidden"
+        onChange={e => {
+          if (e.target.files?.length) {
+            openVaultFallback(e.target.files)
+          }
+          e.target.value = ''
+        }}
+      />
+
       {/* Top controls */}
       <div className="flex items-center justify-between p-2 border-b border-gray-200 dark:border-gray-700">
         {sidebarOpen && (
           <span className="text-sm font-semibold text-gray-700 dark:text-gray-200 truncate px-1">
-            {rootHandle?.name || 'No Vault'}
+            {vaultName || 'No Vault'}
           </span>
         )}
         <button
@@ -44,12 +75,31 @@ export default function Sidebar() {
       {sidebarOpen && (
         <div className="p-2 space-y-1">
           <button
-            onClick={openVault}
+            onClick={handleOpenVault}
             className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
           >
             <FolderOpen size={14} />
-            Open Vault
+            {hasVault ? 'Change Vault' : 'Open Vault'}
           </button>
+          {!isFsApiSupported() && (
+            <div className="px-2 space-y-1">
+              <p className="text-[10px] text-amber-500 leading-tight">
+                Read-only mode — changes won't be saved to disk.
+              </p>
+              <p className="text-[10px] text-amber-500 leading-tight">
+                For full save support:{' '}
+                <a
+                  href="/rootCA.pem"
+                  download="rootCA.pem"
+                  className="underline hover:text-amber-400"
+                  title="Download and install this CA cert in Chrome to enable full access"
+                >
+                  download &amp; install the CA cert
+                </a>
+                , then reload.
+              </p>
+            </div>
+          )}
           <button
             onClick={() => setCommandPaletteOpen(true)}
             className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
@@ -90,7 +140,7 @@ export default function Sidebar() {
       </nav>
 
       {/* File tree */}
-      {sidebarOpen && activeView === 'notes' && rootHandle && (
+      {sidebarOpen && activeView === 'notes' && hasVault && (
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2">
           <FileTree nodes={fileTree} />
         </div>
