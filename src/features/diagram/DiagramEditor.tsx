@@ -841,9 +841,11 @@ export default function DiagramEditor() {
                     ) : (
                       /* ── Flow / standard shape ── */
                       <>
-                        {/* Drop shadow */}
-                        <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.12)"
-                          transform="translate(2,3)" style={{ pointerEvents: 'none' }} />
+                        {/* Drop shadow (skip when fill is transparent) */}
+                        {node.color !== 'transparent' && (
+                          <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.12)"
+                            transform="translate(2,3)" style={{ pointerEvents: 'none' }} />
+                        )}
                         {/* Shape fill */}
                         <path d={nodeShapePath(node)} fill={node.color}
                           stroke={isConnSrc ? '#22d3ee' : isSel ? colors.nodeStrokeSel : colors.nodeStroke}
@@ -975,15 +977,26 @@ export default function DiagramEditor() {
                   <div>
                     <label className={labelCls}>Fill</label>
                     <div className="flex flex-wrap gap-0.5 mb-1">
+                      {/* Transparent swatch */}
+                      <button
+                        onClick={() => updateSelectedNodes({ color: 'transparent' })}
+                        title="Transparent"
+                        className={`w-5 h-5 rounded-full border-2 transition-transform overflow-hidden ${selectedNode.color === 'transparent' ? 'border-accent-500 scale-110' : 'border-gray-300 dark:border-gray-600'}`}
+                        style={{
+                          background: 'repeating-conic-gradient(#d1d5db 0% 25%, #fff 0% 50%) 0 0 / 8px 8px',
+                        }}
+                      />
                       {COLOR_PRESETS.map(c => (
                         <button key={c} onClick={() => updateSelectedNodes({ color: c })}
                           className={`w-5 h-5 rounded-full border-2 transition-transform ${selectedNode.color === c ? 'border-white scale-110' : 'border-transparent'}`}
                           style={{ background: c }} />
                       ))}
                     </div>
-                    <input type="color" value={selectedNode.color}
-                      onChange={e => updateSelectedNodes({ color: e.target.value })}
-                      className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
+                    {selectedNode.color !== 'transparent' && (
+                      <input type="color" value={selectedNode.color.startsWith('#') ? selectedNode.color : '#8b5cf6'}
+                        onChange={e => updateSelectedNodes({ color: e.target.value })}
+                        className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
+                    )}
                   </div>
                   <div>
                     <label className={labelCls}>Text color</label>
