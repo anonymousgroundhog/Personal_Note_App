@@ -18,7 +18,18 @@
       "Bash(npx tsc:*)",
       "Bash(sed -i \"s/^import { FileTreeNode }/import type { FileTreeNode }/\" src/components/Layout/FileTree.tsx)",
       "Bash(sed -i \"s/^import { AppView }/import type { AppView }/\" src/components/Layout/Sidebar.tsx)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(kill %1)",
+      "Bash(npx vite:*)",
+      "Bash(curl -s \"http://localhost:5174/src/App.tsx\")",
+      "Bash(timeout 12 firefox --headless --remote-debugging-port=9224 \"http://localhost:5177\")",
+      "Bash(timeout 12 firefox --headless --remote-debugging-port=9225 \"http://localhost:5177\" 2>&1)",
+      "Bash(timeout 15 firefox --headless --remote-debugging-port=9227 \"http://localhost:5178\")",
+      "Bash(timeout 15 firefox --headless --remote-debugging-port=9228 \"http://localhost:5178\" 2>&1)",
+      "Bash(timeout 10 firefox --headless --screenshot /tmp/app_fixed.png \"http://localhost:5178\")",
+      "Bash(grep -v \"^$\\\\|headless\\\\|BiDi\\\\|extension\")",
+      "Bash(npm list:*)",
+      "Bash(git-lfs --version)"
     ]
   }
 }

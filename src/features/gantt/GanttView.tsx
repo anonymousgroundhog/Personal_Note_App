@@ -40,6 +40,7 @@ export default function GanttView() {
 
   const allChartRef = useRef<GanttChartHandle>(null)
   const singleChartRef = useRef<GanttChartHandle>(null)
+  const [collapsedParents, setCollapsedParents] = useState<Set<string>>(new Set())
 
   const projects = useMemo(() => parseGanttTasks(index), [index])
 
@@ -57,7 +58,7 @@ export default function GanttView() {
     return map
   }, [projects])
 
-  const allTasks = useMemo<GanttTask[]>(() => {
+  const allTasksRaw = useMemo<GanttTask[]>(() => {
     if (projects.length === 0) return []
     return projects.flatMap(p => p.tasks.map(t => ({
       ...t,
@@ -65,10 +66,42 @@ export default function GanttView() {
     })))
   }, [projects])
 
-  const projectTasks = useMemo(() => {
+  const projectTasksRaw = useMemo(() => {
     if (!selectedProject) return projects[0]?.tasks || []
     return projects.find(p => p.id === selectedProject)?.tasks || []
   }, [projects, selectedProject])
+
+  // Build parentIds sets (tasks that have at least one child)
+  const allParentIds = useMemo(() => {
+    const s = new Set<string>()
+    allTasksRaw.forEach(t => { if (t.parentTaskId) s.add(t.parentTaskId) })
+    return s
+  }, [allTasksRaw])
+
+  const projectParentIds = useMemo(() => {
+    const s = new Set<string>()
+    projectTasksRaw.forEach(t => { if (t.parentTaskId) s.add(t.parentTaskId) })
+    return s
+  }, [projectTasksRaw])
+
+  // Filter out tasks whose parent is collapsed
+  const allTasks = useMemo(() =>
+    allTasksRaw.filter(t => !t.parentTaskId || !collapsedParents.has(t.parentTaskId)),
+    [allTasksRaw, collapsedParents]
+  )
+
+  const projectTasks = useMemo(() =>
+    projectTasksRaw.filter(t => !t.parentTaskId || !collapsedParents.has(t.parentTaskId)),
+    [projectTasksRaw, collapsedParents]
+  )
+
+  const handleToggleParent = useCallback((taskId: string) => {
+    setCollapsedParents(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) { next.delete(taskId) } else { next.add(taskId) }
+      return next
+    })
+  }, [])
 
   const getActiveSvg = () => {
     const handle = tab === 'all' ? allChartRef.current : singleChartRef.current
@@ -367,7 +400,7 @@ Task for project: ${newTask.project}
                 {allTasks.length} tasks across {projects.length} projects
                 <span className="ml-2 opacity-60">— click a task bar to edit</span>
               </p>
-              <GanttChart ref={allChartRef} tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
+              <GanttChart ref={allChartRef} tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} collapsedParents={collapsedParents} onToggleParent={handleToggleParent} parentIds={allParentIds} />
             </div>
           ) : (
             <div>
@@ -381,7 +414,7 @@ Task for project: ${newTask.project}
                 <span className="text-xs text-gray-500">{projectTasks.length} tasks</span>
                 <span className="text-xs text-gray-400 opacity-60">— click a task bar to edit</span>
               </div>
-              <GanttChart ref={singleChartRef} tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
+              <GanttChart ref={singleChartRef} tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} collapsedParents={collapsedParents} onToggleParent={handleToggleParent} parentIds={projectParentIds} />
             </div>
           )}
         </div>

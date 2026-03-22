@@ -8,6 +8,9 @@ interface Props {
   onEditTask?: (task: GanttTask) => void
   onDragTask?: (task: GanttTask, newStart: string, newEnd: string) => void
   projectColors?: Map<string, string>
+  collapsedParents?: Set<string>
+  onToggleParent?: (taskId: string) => void
+  parentIds?: Set<string>
 }
 
 export interface GanttChartHandle {
@@ -123,7 +126,7 @@ function xToDate(x: number, chartStart: Date, viewMode: string, cw: number): Dat
 }
 
 const GanttChart = forwardRef<GanttChartHandle, Props>(function GanttChart(
-  { tasks, viewMode = 'Week', onEditTask, onDragTask, projectColors }: Props,
+  { tasks, viewMode = 'Week', onEditTask, onDragTask, projectColors, collapsedParents, onToggleParent, parentIds }: Props,
   ref
 ) {
   const { darkMode } = useUiStore()
@@ -402,8 +405,23 @@ const GanttChart = forwardRef<GanttChartHandle, Props>(function GanttChart(
               <line x1={0} y1={y + ROW_H} x2={LABEL_W + totalW} y2={y + ROW_H} stroke={colors.border} strokeWidth={0.5} />
 
               {/* Label area */}
+              {/* Collapse toggle for parent tasks */}
+              {parentIds?.has(task.id) && onToggleParent && (
+                <text
+                  x={6} y={y + ROW_H / 2}
+                  fontSize={10} fill={colors.labelSub}
+                  style={{ dominantBaseline: 'middle', cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => onToggleParent(task.id)}
+                >
+                  {collapsedParents?.has(task.id) ? '▶' : '▼'}
+                </text>
+              )}
               {projectColor && (
-                <circle cx={10} cy={y + ROW_H / 2 - 5} r={4} fill={projectColor} />
+                <circle cx={parentIds?.has(task.id) ? 22 : 10} cy={y + ROW_H / 2 - 5} r={4} fill={projectColor} />
+              )}
+              {/* Indent subtasks */}
+              {task.parentTaskId && (
+                <line x1={14} y1={y} x2={14} y2={y + ROW_H / 2} stroke={colors.border} strokeWidth={1} />
               )}
               {/* Blocked indicator */}
               {isBlocked && (
@@ -421,14 +439,25 @@ const GanttChart = forwardRef<GanttChartHandle, Props>(function GanttChart(
                   🔒
                 </text>
               )}
-              <text x={projectColor ? 20 : 10} y={y + ROW_H / 2 - 5} fontSize={12} fill={colors.labelText} fontWeight="500"
-                style={{ dominantBaseline: 'middle' }}>
-                {task.name.length > 22 ? task.name.slice(0, 21) + '…' : task.name}
-              </text>
-              <text x={projectColor ? 20 : 10} y={y + ROW_H / 2 + 9} fontSize={10} fill={colors.labelSub}>
-                {fmtDate(taskStart)} → {fmtDate(taskEnd)}
-                {' '}({duration}d)
-              </text>
+              {(() => {
+                const isParent = parentIds?.has(task.id)
+                const isChild = !!task.parentTaskId
+                const textX = isParent ? (projectColor ? 34 : 22) : isChild ? (projectColor ? 26 : 22) : (projectColor ? 20 : 10)
+                const maxLen = isChild ? 20 : 22
+                return (
+                  <>
+                    <text x={textX} y={y + ROW_H / 2 - 5} fontSize={isChild ? 11 : 12} fill={colors.labelText}
+                      fontWeight={isParent ? '700' : '500'}
+                      style={{ dominantBaseline: 'middle' }}>
+                      {task.name.length > maxLen ? task.name.slice(0, maxLen - 1) + '…' : task.name}
+                    </text>
+                    <text x={textX} y={y + ROW_H / 2 + 9} fontSize={10} fill={colors.labelSub}>
+                      {fmtDate(taskStart)} → {fmtDate(taskEnd)}
+                      {' '}({duration}d)
+                    </text>
+                  </>
+                )
+              })()}
 
               {/* Bar shadow */}
               <rect x={barX + 1} y={y + BAR_Y_OFFSET + 2} width={barW} height={BAR_H}

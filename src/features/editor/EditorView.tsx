@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react'
-import { Eye, Edit3, Plus, RefreshCw, Tag } from 'lucide-react'
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Eye, Edit3, Plus, RefreshCw, Tag, Search, FileText, Clock } from 'lucide-react'
 import MarkdownEditor from './MarkdownEditor'
 import MarkdownPreview from './MarkdownPreview'
 import { useVaultStore } from '../../stores/vaultStore'
@@ -11,7 +11,7 @@ type EditorMode = 'edit' | 'preview' | 'split'
 
 export default function EditorView() {
   const { activeNotePath, setActiveNote } = useUiStore()
-  const { readNote, saveNote, createNote, refreshIndex } = useVaultStore()
+  const { readNote, saveNote, createNote, refreshIndex, index } = useVaultStore()
   const [content, setContent] = useState('')
   const [mode, setMode] = useState<EditorMode>('split')
   const [dirty, setDirty] = useState(false)
@@ -68,21 +68,122 @@ export default function EditorView() {
     setTagInput('')
   }
 
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const suggestions = useMemo(() => {
+    const entries = Array.from(index.entries()).map(([path, note]) => ({ path, note }))
+    if (!searchQuery.trim()) {
+      // Sort by path (alphabetical) and return first 12
+      return entries.sort((a, b) => a.path.localeCompare(b.path)).slice(0, 12)
+    }
+    const q = searchQuery.toLowerCase()
+    return entries
+      .filter(({ path, note }) =>
+        note.name.toLowerCase().includes(q) ||
+        path.toLowerCase().includes(q) ||
+        (note.excerpt || '').toLowerCase().includes(q)
+      )
+      .sort((a, b) => {
+        // Rank name matches above excerpt matches
+        const aName = a.note.name.toLowerCase().includes(q) ? 0 : 1
+        const bName = b.note.name.toLowerCase().includes(q) ? 0 : 1
+        return aName - bName || a.path.localeCompare(b.path)
+      })
+      .slice(0, 12)
+  }, [index, searchQuery])
+
   const { frontmatter } = parseFrontmatter(content)
   const tags = (frontmatter.tags as string[] || [])
 
   if (!activeNotePath) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-white dark:bg-surface-900 text-gray-400">
-        <Edit3 size={48} className="opacity-30" />
-        <p className="text-lg">No note selected</p>
-        <button
-          onClick={handleNewNote}
-          className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors"
-        >
-          <Plus size={16} />
-          New Note
-        </button>
+      <div className="flex-1 flex flex-col bg-white dark:bg-surface-900 overflow-hidden">
+        {/* Header bar */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <FileText size={18} className="text-accent-500" />
+          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notes</span>
+          <div className="ml-auto">
+            <button
+              onClick={handleNewNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors text-sm"
+            >
+              <Plus size={14} />
+              New Note
+            </button>
+          </div>
+        </div>
+        {/* Search */}
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search notes by name or content…"
+              autoFocus
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-500 placeholder-gray-400"
+            />
+          </div>
+        </div>
+        {/* Suggestions grid */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {index.size === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400">
+              <Edit3 size={48} className="opacity-30" />
+              <p className="text-base">No vault open</p>
+              <p className="text-sm text-center max-w-xs">Open a vault folder from the sidebar to start managing your notes.</p>
+            </div>
+          ) : suggestions.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-32 gap-2 text-gray-400">
+              <Search size={24} className="opacity-40" />
+              <p className="text-sm">No notes match "{searchQuery}"</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-gray-400 mb-3 flex items-center gap-1">
+                <Clock size={11} />
+                {searchQuery ? `${suggestions.length} result${suggestions.length !== 1 ? 's' : ''}` : `${index.size} note${index.size !== 1 ? 's' : ''} — showing ${suggestions.length}`}
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {suggestions.map(({ path, note }) => {
+                  const tags = (note.frontmatter?.tags as string[] | undefined) || []
+                  const name = note.name || path.split('/').pop()?.replace(/\.md$/, '') || path
+                  return (
+                    <button
+                      key={path}
+                      onClick={() => setActiveNote(path)}
+                      className="text-left p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-accent-500 hover:bg-accent-500/5 transition-colors group"
+                    >
+                      <div className="flex items-start gap-2">
+                        <FileText size={14} className="text-gray-400 group-hover:text-accent-500 mt-0.5 flex-shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-800 dark:text-gray-100 truncate group-hover:text-accent-500">
+                            {name}
+                          </p>
+                          {note.excerpt && (
+                            <p className="text-xs text-gray-400 mt-0.5 line-clamp-2 leading-relaxed">
+                              {note.excerpt.slice(0, 100)}
+                            </p>
+                          )}
+                          {tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {tags.slice(0, 3).map(tag => (
+                                <span key={tag} className="text-xs px-1.5 py-0.5 bg-accent-500/10 text-accent-500 rounded-full">
+                                  #{tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
       </div>
     )
   }
