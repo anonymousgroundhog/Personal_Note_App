@@ -1,11 +1,15 @@
 import React, {
-  useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo,
+  useState, useRef, useCallback, useEffect, useMemo,
 } from 'react'
 import { useUiStore } from '../../stores/uiStore'
+import { useVaultStore } from '../../stores/vaultStore'
+import { nodeShapePath } from './diagramUtils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type NodeShape = 'rect' | 'diamond' | 'circle' | 'parallelogram' | 'cylinder' | 'hexagon'
+export type NodeShape =
+  | 'rect' | 'diamond' | 'circle' | 'parallelogram' | 'cylinder' | 'hexagon'
+  | 'server' | 'cloud' | 'router' | 'firewall' | 'laptop' | 'phone'
 
 export interface DiagramNode {
   id: string
@@ -15,7 +19,7 @@ export interface DiagramNode {
   h: number
   shape: NodeShape
   label: string
-  color: string   // fill hex
+  color: string
   textColor: string
 }
 
@@ -43,13 +47,21 @@ const DEFAULT_NODE_H = 60
 const GRID = 10
 const snap = (v: number) => Math.round(v / GRID) * GRID
 
-const PALETTE_SHAPES: { shape: NodeShape; label: string; icon: string }[] = [
-  { shape: 'rect',          label: 'Process',   icon: '▭' },
-  { shape: 'diamond',       label: 'Decision',  icon: '◇' },
-  { shape: 'circle',        label: 'Start/End', icon: '○' },
-  { shape: 'parallelogram', label: 'I/O',       icon: '▱' },
-  { shape: 'cylinder',      label: 'Database',  icon: '⬭' },
-  { shape: 'hexagon',       label: 'Prep',      icon: '⬡' },
+const PALETTE_SHAPES: { shape: NodeShape; label: string; icon: string; section: string }[] = [
+  // Flowchart
+  { shape: 'rect',          label: 'Process',   icon: '▭', section: 'Flow' },
+  { shape: 'diamond',       label: 'Decision',  icon: '◇', section: 'Flow' },
+  { shape: 'circle',        label: 'Start/End', icon: '○', section: 'Flow' },
+  { shape: 'parallelogram', label: 'I/O',       icon: '▱', section: 'Flow' },
+  { shape: 'cylinder',      label: 'Database',  icon: '⬭', section: 'Flow' },
+  { shape: 'hexagon',       label: 'Prep',      icon: '⬡', section: 'Flow' },
+  // Network
+  { shape: 'server',   label: 'Server',   icon: '🖥', section: 'Network' },
+  { shape: 'cloud',    label: 'Cloud',    icon: '☁', section: 'Network' },
+  { shape: 'router',   label: 'Router',   icon: '⬡', section: 'Network' },
+  { shape: 'firewall', label: 'Firewall', icon: '🛡', section: 'Network' },
+  { shape: 'laptop',   label: 'Laptop',   icon: '💻', section: 'Network' },
+  { shape: 'phone',    label: 'Phone',    icon: '📱', section: 'Network' },
 ]
 
 const COLOR_PRESETS = [
@@ -57,17 +69,27 @@ const COLOR_PRESETS = [
   '#ef4444', '#ec4899', '#06b6d4', '#6b7280',
 ]
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function uid() {
-  return Math.random().toString(36).slice(2, 9)
+/** Icon overlay for network shapes */
+function networkIcon(shape: NodeShape): string | null {
+  switch (shape) {
+    case 'server':   return '🖥'
+    case 'cloud':    return '☁'
+    case 'router':   return '⬡'
+    case 'firewall': return '🛡'
+    case 'laptop':   return '💻'
+    case 'phone':    return '📱'
+    default:         return null
+  }
 }
+
+// ─── Geometry helpers ─────────────────────────────────────────────────────────
+
+function uid() { return Math.random().toString(36).slice(2, 9) }
 
 function getNodeCenter(n: DiagramNode): [number, number] {
   return [n.x + n.w / 2, n.y + n.h / 2]
 }
 
-/** Returns the point on the border of the node closest to (tx, ty) */
 function getBorderPoint(n: DiagramNode, tx: number, ty: number): [number, number] {
   const cx = n.x + n.w / 2
   const cy = n.y + n.h / 2
@@ -80,85 +102,28 @@ function getBorderPoint(n: DiagramNode, tx: number, ty: number): [number, number
     const len = Math.hypot(dx, dy)
     return [cx + (dx / len) * r, cy + (dy / len) * r]
   }
-
   if (n.shape === 'diamond') {
-    const hw = n.w / 2
-    const hh = n.h / 2
-    // parametric intersection with diamond edges
+    const hw = n.w / 2, hh = n.h / 2
     const t1 = Math.min(Math.abs(hw / (dx || 0.001)), Math.abs(hh / (dy || 0.001)))
     return [cx + dx * t1, cy + dy * t1]
   }
-
-  // rect / parallelogram / cylinder / hexagon — use bounding rect
-  const hw = n.w / 2
-  const hh = n.h / 2
+  const hw = n.w / 2, hh = n.h / 2
   const tx1 = Math.abs(dx) > 0.001 ? hw / Math.abs(dx) : Infinity
   const ty1 = Math.abs(dy) > 0.001 ? hh / Math.abs(dy) : Infinity
   const t = Math.min(tx1, ty1)
   return [cx + dx * t, cy + dy * t]
 }
 
-function nodeShapePath(n: DiagramNode): string {
-  const { x, y, w, h, shape } = n
-  switch (shape) {
-    case 'rect':
-      return `M ${x} ${y} h ${w} v ${h} h ${-w} Z`
-    case 'diamond': {
-      const cx = x + w / 2, cy = y + h / 2
-      return `M ${cx} ${y} L ${x + w} ${cy} L ${cx} ${y + h} L ${x} ${cy} Z`
-    }
-    case 'circle': {
-      const rx = w / 2, ry = h / 2, cx = x + rx, cy = y + ry
-      return `M ${cx - rx} ${cy} a ${rx} ${ry} 0 1 0 ${w} 0 a ${rx} ${ry} 0 1 0 ${-w} 0`
-    }
-    case 'parallelogram': {
-      const off = 16
-      return `M ${x + off} ${y} L ${x + w} ${y} L ${x + w - off} ${y + h} L ${x} ${y + h} Z`
-    }
-    case 'cylinder': {
-      const rx = w / 2, ry = 10, cx = x + rx, cy = y
-      return [
-        `M ${x} ${cy + ry}`,
-        `a ${rx} ${ry} 0 1 1 ${w} 0`,
-        `v ${h - ry * 2}`,
-        `a ${rx} ${ry} 0 1 1 ${-w} 0`,
-        `Z`,
-        // top ellipse outline
-        `M ${x} ${cy + ry} a ${rx} ${ry} 0 1 0 ${w} 0`,
-      ].join(' ')
-    }
-    case 'hexagon': {
-      const off = w * 0.2
-      return [
-        `M ${x + off} ${y}`,
-        `L ${x + w - off} ${y}`,
-        `L ${x + w} ${y + h / 2}`,
-        `L ${x + w - off} ${y + h}`,
-        `L ${x + off} ${y + h}`,
-        `L ${x} ${y + h / 2}`,
-        `Z`,
-      ].join(' ')
-    }
-  }
-}
-
-/** Build a smooth cubic bezier path between two node border points */
-function edgePath(
-  from: DiagramNode,
-  to: DiagramNode,
-  dxOff = 0, dyOff = 0,
-): string {
-  const [tx, ty] = getNodeCenter(to)
-  const [fx, fy] = getNodeCenter(from)
-  const [bfx, bfy] = getBorderPoint(from, tx + dxOff, ty + dyOff)
-  const [btx, bty] = getBorderPoint(to, fx, fy)
+function edgePath(from: DiagramNode, to: DiagramNode): string {
+  const [tcx, tcy] = getNodeCenter(to)
+  const [fcx, fcy] = getNodeCenter(from)
+  const [bfx, bfy] = getBorderPoint(from, tcx, tcy)
+  const [btx, bty] = getBorderPoint(to, fcx, fcy)
   const dx = btx - bfx
-  const dy = bty - bfy
-  const c = Math.min(Math.abs(dx), Math.abs(dy), 80)
   return `M ${bfx} ${bfy} C ${bfx + dx * 0.5} ${bfy} ${btx - dx * 0.5} ${bty} ${btx} ${bty}`
 }
 
-// ─── Load / Save ──────────────────────────────────────────────────────────────
+// ─── Storage ──────────────────────────────────────────────────────────────────
 
 function loadDiagrams(): Diagram[] {
   try {
@@ -176,12 +141,16 @@ function saveDiagrams(diagrams: Diagram[]) {
 
 export default function DiagramEditor() {
   const { darkMode } = useUiStore()
+  const { index, saveNote, readNote } = useVaultStore()
 
   // ── Diagram state ──
   const [diagrams, setDiagrams] = useState<Diagram[]>(loadDiagrams)
-  const [activeDiagramId, setActiveDiagramId] = useState<string>(diagrams[0].id)
+  const [activeDiagramId, setActiveDiagramId] = useState<string>(() => loadDiagrams()[0].id)
 
-  const diagram = diagrams.find(d => d.id === activeDiagramId) ?? diagrams[0]
+  const diagram = useMemo(
+    () => diagrams.find(d => d.id === activeDiagramId) ?? diagrams[0],
+    [diagrams, activeDiagramId]
+  )
 
   const updateDiagram = useCallback((patch: Partial<Omit<Diagram, 'id'>>) => {
     setDiagrams(ds => {
@@ -196,73 +165,100 @@ export default function DiagramEditor() {
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null)
 
   // ── Viewport ──
-  const [viewport, setViewport] = useState({ x: 0, y: 0, scale: 1 })
+  const [viewport, setViewport] = useState({ x: 40, y: 40, scale: 1 })
 
   // ── Drag ──
   const dragRef = useRef<{
-    type: 'node' | 'canvas' | 'palette'
+    type: 'node' | 'canvas'
     nodeIds?: string[]
     startClient: [number, number]
-    startNodePos?: [number, number][]  // original positions for multi-drag
+    startNodePos?: [number, number][]
     startVp?: { x: number; y: number }
   } | null>(null)
 
   // ── Connect mode ──
-  const [connectFrom, setConnectFrom] = useState<string | null>(null)
+  // connectMode: whether connect tool is active
+  // connectFromId: the source node id (null = waiting to click source)
+  const [connectMode, setConnectMode] = useState(false)
+  const [connectFromId, setConnectFromId] = useState<string | null>(null)
+  // Default edge style for new connections
+  const [defaultEdgeStyle, setDefaultEdgeStyle] = useState<DiagramEdge['style']>('solid')
+  const [defaultEdgeArrow, setDefaultEdgeArrow] = useState<DiagramEdge['arrow']>('end')
 
   // ── Inline label edit ──
   const [editingLabel, setEditingLabel] = useState<{ type: 'node' | 'edge'; id: string; value: string } | null>(null)
 
-  // ── Property panel ──
-  const [showProps, setShowProps] = useState(false)
+  // ── Props panel always visible ──
+  const [showProps, setShowProps] = useState(true)
 
-  // ── SVG ref ──
+  // ── Embed modal ──
+  const [showEmbed, setShowEmbed] = useState(false)
+  const [embedNote, setEmbedNote] = useState('')
+  const [embedMsg, setEmbedMsg] = useState('')
+
+  // ── SVG / container refs ──
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // ── Palette drag ──
+  const paletteDragRef = useRef<{ shape: NodeShape } | null>(null)
 
   // ── Colors ──
   const colors = useMemo(() => ({
     bg: darkMode ? '#111111' : '#f8f8f8',
     gridLine: darkMode ? '#1e1e1e' : '#e5e7eb',
-    nodeFill: darkMode ? '#1e1e1e' : '#ffffff',
     nodeStroke: darkMode ? '#3d3d3d' : '#d1d5db',
     nodeStrokeSel: '#8b5cf6',
-    nodeText: darkMode ? '#e5e7eb' : '#1f2937',
     edgeStroke: darkMode ? '#6b7280' : '#9ca3af',
     edgeStrokeSel: '#8b5cf6',
-    shadow: darkMode ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.10)',
   }), [darkMode])
 
-  // ── Palette drag pending ──
-  const paletteDragRef = useRef<{ shape: NodeShape } | null>(null)
-
-  // ─── Convert client coords to SVG canvas coords ──────────────────────────
+  // ── Client → canvas coords ──
   const clientToCanvas = useCallback((cx: number, cy: number): [number, number] => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return [0, 0]
-    const sx = (cx - rect.left - viewport.x) / viewport.scale
-    const sy = (cy - rect.top - viewport.y) / viewport.scale
-    return [sx, sy]
+    return [
+      (cx - rect.left - viewport.x) / viewport.scale,
+      (cy - rect.top - viewport.y) / viewport.scale,
+    ]
   }, [viewport])
 
-  // ─── Node interactions ────────────────────────────────────────────────────
+  // ── Label commit ──
+  const commitLabel = useCallback(() => {
+    if (!editingLabel) return
+    if (editingLabel.type === 'node') {
+      updateDiagram({ nodes: diagram.nodes.map(n => n.id === editingLabel.id ? { ...n, label: editingLabel.value } : n) })
+    } else {
+      updateDiagram({ edges: diagram.edges.map(e => e.id === editingLabel.id ? { ...e, label: editingLabel.value } : e) })
+    }
+    setEditingLabel(null)
+  }, [editingLabel, diagram, updateDiagram])
+
+  // ── Node click / drag ──
   const handleNodeMouseDown = useCallback((e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
 
-    // Connect mode: clicking a node creates an edge
-    if (connectFrom !== null) {
-      if (connectFrom !== nodeId) {
+    // In connect mode: first click = source, second click = destination
+    if (connectMode) {
+      if (connectFromId === null) {
+        // Select source
+        setConnectFromId(nodeId)
+      } else if (connectFromId !== nodeId) {
+        // Create edge
         const newEdge: DiagramEdge = {
-          id: uid(), fromId: connectFrom, toId: nodeId,
-          label: '', style: 'solid', arrow: 'end',
+          id: uid(), fromId: connectFromId, toId: nodeId,
+          label: '', style: defaultEdgeStyle, arrow: defaultEdgeArrow,
         }
         updateDiagram({ edges: [...diagram.edges, newEdge] })
+        setSelectedEdgeId(newEdge.id)
+        setSelectedNodeIds(new Set())
+        setConnectFromId(null)
+        // Stay in connect mode for chaining — user can press Escape to exit
       }
-      setConnectFrom(null)
       return
     }
 
-    if (editingLabel) return
+    if (editingLabel) { commitLabel(); return }
 
     const isSelected = selectedNodeIds.has(nodeId)
     let ids: string[]
@@ -277,32 +273,32 @@ export default function DiagramEditor() {
     }
     setSelectedEdgeId(null)
 
-    const startNodePos = ids.map(id => {
-      const n = diagram.nodes.find(n => n.id === id)!
-      return [n.x, n.y] as [number, number]
-    })
-
     dragRef.current = {
       type: 'node',
       nodeIds: ids,
       startClient: [e.clientX, e.clientY],
-      startNodePos,
+      startNodePos: ids.map(id => {
+        const n = diagram.nodes.find(n => n.id === id)!
+        return [n.x, n.y] as [number, number]
+      }),
     }
-  }, [connectFrom, editingLabel, selectedNodeIds, diagram, updateDiagram])
+  }, [connectMode, connectFromId, defaultEdgeStyle, defaultEdgeArrow, editingLabel, selectedNodeIds, diagram, updateDiagram, commitLabel])
 
   const handleNodeDblClick = useCallback((e: React.MouseEvent, nodeId: string) => {
     e.stopPropagation()
+    if (connectMode) return
     const node = diagram.nodes.find(n => n.id === nodeId)
     if (!node) return
     setEditingLabel({ type: 'node', id: nodeId, value: node.label })
-  }, [diagram])
+  }, [connectMode, diagram])
 
-  // ─── Canvas interactions ──────────────────────────────────────────────────
+  // ── Canvas mousedown ──
   const handleCanvasMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.target !== svgRef.current && (e.target as Element).tagName === 'svg') {
-      // clicked blank canvas
+    // In connect mode: clicking blank canvas cancels source selection
+    if (connectMode) {
+      setConnectFromId(null)
+      return
     }
-    if (connectFrom) { setConnectFrom(null); return }
     if (editingLabel) { commitLabel(); return }
     setSelectedNodeIds(new Set())
     setSelectedEdgeId(null)
@@ -311,95 +307,63 @@ export default function DiagramEditor() {
       startClient: [e.clientX, e.clientY],
       startVp: { x: viewport.x, y: viewport.y },
     }
-  }, [connectFrom, editingLabel, viewport])
+  }, [connectMode, editingLabel, commitLabel, viewport])
 
+  // ── Global mouse move/up ──
   const handleMouseMove = useCallback((e: MouseEvent) => {
     const dr = dragRef.current
     if (!dr) return
-
     if (dr.type === 'canvas' && dr.startVp) {
-      const dx = e.clientX - dr.startClient[0]
-      const dy = e.clientY - dr.startClient[1]
-      setViewport(v => ({ ...v, x: dr.startVp!.x + dx, y: dr.startVp!.y + dy }))
+      setViewport(v => ({ ...v, x: dr.startVp!.x + (e.clientX - dr.startClient[0]), y: dr.startVp!.y + (e.clientY - dr.startClient[1]) }))
     }
-
     if (dr.type === 'node' && dr.nodeIds && dr.startNodePos) {
       const dx = (e.clientX - dr.startClient[0]) / viewport.scale
       const dy = (e.clientY - dr.startClient[1]) / viewport.scale
-      const updatedNodes = diagram.nodes.map(n => {
-        const idx = dr.nodeIds!.indexOf(n.id)
-        if (idx === -1) return n
-        return { ...n, x: snap(dr.startNodePos![idx][0] + dx), y: snap(dr.startNodePos![idx][1] + dy) }
+      updateDiagram({
+        nodes: diagram.nodes.map(n => {
+          const idx = dr.nodeIds!.indexOf(n.id)
+          if (idx === -1) return n
+          return { ...n, x: snap(dr.startNodePos![idx][0] + dx), y: snap(dr.startNodePos![idx][1] + dy) }
+        }),
       })
-      updateDiagram({ nodes: updatedNodes })
     }
   }, [viewport.scale, diagram.nodes, updateDiagram])
 
-  const handleMouseUp = useCallback(() => {
-    dragRef.current = null
-  }, [])
+  const handleMouseUp = useCallback(() => { dragRef.current = null }, [])
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove)
     window.addEventListener('mouseup', handleMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove)
-      window.removeEventListener('mouseup', handleMouseUp)
-    }
+    return () => { window.removeEventListener('mousemove', handleMouseMove); window.removeEventListener('mouseup', handleMouseUp) }
   }, [handleMouseMove, handleMouseUp])
 
-  // ─── Wheel zoom ───────────────────────────────────────────────────────────
-  const handleWheel = useCallback((e: WheelEvent) => {
-    e.preventDefault()
-    const rect = svgRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const factor = e.deltaY < 0 ? 1.1 : 0.9
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
-    setViewport(v => {
-      const newScale = Math.max(0.1, Math.min(4, v.scale * factor))
-      const ratio = newScale / v.scale
-      return {
-        scale: newScale,
-        x: mx - ratio * (mx - v.x),
-        y: my - ratio * (my - v.y),
-      }
-    })
-  }, [])
-
+  // ── Wheel zoom ──
   useEffect(() => {
     const el = svgRef.current
     if (!el) return
-    el.addEventListener('wheel', handleWheel, { passive: false })
-    return () => el.removeEventListener('wheel', handleWheel)
-  }, [handleWheel])
-
-  // ─── Drop from palette ────────────────────────────────────────────────────
-  const handleSvgDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    const shape = paletteDragRef.current?.shape
-    if (!shape) return
-    paletteDragRef.current = null
-    const [cx, cy] = clientToCanvas(e.clientX, e.clientY)
-    const x = snap(cx - DEFAULT_NODE_W / 2)
-    const y = snap(cy - DEFAULT_NODE_H / 2)
-    const newNode: DiagramNode = {
-      id: uid(), x, y, w: DEFAULT_NODE_W, h: DEFAULT_NODE_H,
-      shape, label: shape.charAt(0).toUpperCase() + shape.slice(1),
-      color: COLOR_PRESETS[diagram.nodes.length % COLOR_PRESETS.length],
-      textColor: '#ffffff',
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const factor = e.deltaY < 0 ? 1.1 : 0.9
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top
+      setViewport(v => {
+        const ns = Math.max(0.1, Math.min(4, v.scale * factor))
+        const r = ns / v.scale
+        return { scale: ns, x: mx - r * (mx - v.x), y: my - r * (my - v.y) }
+      })
     }
-    updateDiagram({ nodes: [...diagram.nodes, newNode] })
-    setSelectedNodeIds(new Set([newNode.id]))
-  }, [clientToCanvas, diagram.nodes, updateDiagram])
+    el.addEventListener('wheel', handler, { passive: false })
+    return () => el.removeEventListener('wheel', handler)
+  }, [])
 
-  // ─── Keyboard ─────────────────────────────────────────────────────────────
+  // ── Keyboard ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (editingLabel) return
+      if (e.key === 'Escape') { setConnectMode(false); setConnectFromId(null) }
+      const tgt = e.target as HTMLElement
+      if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA') return
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const target = e.target as HTMLElement
-        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
         if (selectedNodeIds.size > 0) {
           const ids = [...selectedNodeIds]
           updateDiagram({
@@ -420,133 +384,103 @@ export default function DiagramEditor() {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [selectedNodeIds, selectedEdgeId, diagram, updateDiagram, editingLabel])
+  }, [editingLabel, selectedNodeIds, selectedEdgeId, diagram, updateDiagram])
 
-  // ─── Label commit ─────────────────────────────────────────────────────────
-  const commitLabel = useCallback(() => {
-    if (!editingLabel) return
-    if (editingLabel.type === 'node') {
-      updateDiagram({ nodes: diagram.nodes.map(n => n.id === editingLabel.id ? { ...n, label: editingLabel.value } : n) })
-    } else {
-      updateDiagram({ edges: diagram.edges.map(ed => ed.id === editingLabel.id ? { ...ed, label: editingLabel.value } : ed) })
+  // ── Palette drop ──
+  const handleSvgDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const shape = paletteDragRef.current?.shape
+    if (!shape) return
+    paletteDragRef.current = null
+    const [cx, cy] = clientToCanvas(e.clientX, e.clientY)
+    const newNode: DiagramNode = {
+      id: uid(),
+      x: snap(cx - DEFAULT_NODE_W / 2), y: snap(cy - DEFAULT_NODE_H / 2),
+      w: DEFAULT_NODE_W, h: DEFAULT_NODE_H,
+      shape, label: PALETTE_SHAPES.find(p => p.shape === shape)?.label ?? shape,
+      color: COLOR_PRESETS[diagram.nodes.length % COLOR_PRESETS.length],
+      textColor: '#ffffff',
     }
-    setEditingLabel(null)
-  }, [editingLabel, diagram, updateDiagram])
+    updateDiagram({ nodes: [...diagram.nodes, newNode] })
+    setSelectedNodeIds(new Set([newNode.id]))
+  }, [clientToCanvas, diagram.nodes, updateDiagram])
 
-  // ─── Export ───────────────────────────────────────────────────────────────
-  const exportSvg = () => {
+  // ── Fit view ──
+  const fitView = useCallback(() => {
+    if (diagram.nodes.length === 0) { setViewport({ x: 40, y: 40, scale: 1 }); return }
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const xs = diagram.nodes.map(n => n.x), ys = diagram.nodes.map(n => n.y)
+    const x2 = diagram.nodes.map(n => n.x + n.w), y2 = diagram.nodes.map(n => n.y + n.h)
+    const minX = Math.min(...xs) - 40, minY = Math.min(...ys) - 40
+    const maxX = Math.max(...x2) + 40, maxY = Math.max(...y2) + 40
+    const scale = Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY), 2)
+    setViewport({
+      scale,
+      x: rect.width / 2 - ((minX + maxX) / 2) * scale,
+      y: rect.height / 2 - ((minY + maxY) / 2) * scale,
+    })
+  }, [diagram.nodes])
+
+  // ── Export helpers ──
+  const buildExportSvg = useCallback((): string => {
     const el = svgRef.current
-    if (!el) return
-    // Temporarily remove transform to export at 1:1
-    const g = el.querySelector('g[data-viewport]') as SVGGElement | null
-    const origTransform = g?.getAttribute('transform') ?? ''
-    g?.setAttribute('transform', '')
-    const w = el.viewBox.baseVal.width || el.clientWidth
-    const h = el.viewBox.baseVal.height || el.clientHeight
-    const clone = el.cloneNode(true) as SVGSVGElement
-    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
-    g?.setAttribute('transform', origTransform)
-    // Fit viewBox to content
-    if (diagram.nodes.length > 0) {
-      const xs = diagram.nodes.map(n => n.x)
-      const ys = diagram.nodes.map(n => n.y)
-      const x2 = diagram.nodes.map(n => n.x + n.w)
-      const y2 = diagram.nodes.map(n => n.y + n.h)
-      const minX = Math.min(...xs) - 20
-      const minY = Math.min(...ys) - 20
-      const maxX = Math.max(...x2) + 20
-      const maxY = Math.max(...y2) + 20
-      clone.setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`)
-      clone.setAttribute('width', String(maxX - minX))
-      clone.setAttribute('height', String(maxY - minY))
-    }
-    const ser = new XMLSerializer()
-    const svgStr = ser.serializeToString(clone)
-    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `${diagram.name.replace(/\s+/g, '-').toLowerCase()}.svg`
-    a.click(); URL.revokeObjectURL(url)
-  }
-
-  const exportPng = () => {
-    if (diagram.nodes.length === 0) return
-    const xs = diagram.nodes.map(n => n.x)
-    const ys = diagram.nodes.map(n => n.y)
-    const x2 = diagram.nodes.map(n => n.x + n.w)
-    const y2 = diagram.nodes.map(n => n.y + n.h)
-    const minX = Math.min(...xs) - 20
-    const minY = Math.min(...ys) - 20
-    const vw = Math.max(...x2) + 20 - minX
-    const vh = Math.max(...y2) + 20 - minY
-
-    // Clone SVG
-    const el = svgRef.current
-    if (!el) return
+    if (!el || diagram.nodes.length === 0) return ''
+    const xs = diagram.nodes.map(n => n.x), ys = diagram.nodes.map(n => n.y)
+    const x2 = diagram.nodes.map(n => n.x + n.w), y2 = diagram.nodes.map(n => n.y + n.h)
+    const minX = Math.min(...xs) - 20, minY = Math.min(...ys) - 20
+    const vw = Math.max(...x2) + 20 - minX, vh = Math.max(...y2) + 20 - minY
     const clone = el.cloneNode(true) as SVGSVGElement
     clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
     clone.setAttribute('viewBox', `${minX} ${minY} ${vw} ${vh}`)
     clone.setAttribute('width', String(vw))
     clone.setAttribute('height', String(vh))
-    // Remove the viewport transform from the clone
     const gVp = clone.querySelector('g[data-viewport]') as SVGGElement | null
     gVp?.setAttribute('transform', '')
-    const ser = new XMLSerializer()
-    const svgStr = ser.serializeToString(clone)
-    const img = new Image()
-    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr)
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      const scale = 2
-      canvas.width = vw * scale; canvas.height = vh * scale
-      const ctx = canvas.getContext('2d')!
-      ctx.scale(scale, scale)
-      ctx.drawImage(img, 0, 0)
-      const pngUrl = canvas.toDataURL('image/png')
-      const a = document.createElement('a')
-      a.href = pngUrl; a.download = `${diagram.name.replace(/\s+/g, '-').toLowerCase()}.png`
-      a.click()
-    }
-    img.src = url
-  }
-
-  // ─── Derived selection ────────────────────────────────────────────────────
-  const selectedNodes = useMemo(
-    () => diagram.nodes.filter(n => selectedNodeIds.has(n.id)),
-    [diagram.nodes, selectedNodeIds]
-  )
-  const selectedNode = selectedNodes.length === 1 ? selectedNodes[0] : null
-
-  const updateSelectedNodes = (patch: Partial<DiagramNode>) => {
-    updateDiagram({
-      nodes: diagram.nodes.map(n => selectedNodeIds.has(n.id) ? { ...n, ...patch } : n),
-    })
-  }
-
-  const selectedEdge = selectedEdgeId ? diagram.edges.find(e => e.id === selectedEdgeId) ?? null : null
-  const updateSelectedEdge = (patch: Partial<DiagramEdge>) => {
-    if (!selectedEdgeId) return
-    updateDiagram({ edges: diagram.edges.map(e => e.id === selectedEdgeId ? { ...e, ...patch } : e) })
-  }
-
-  // ─── Fit view ─────────────────────────────────────────────────────────────
-  const fitView = useCallback(() => {
-    if (diagram.nodes.length === 0) { setViewport({ x: 0, y: 0, scale: 1 }); return }
-    const rect = containerRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const xs = diagram.nodes.map(n => n.x)
-    const ys = diagram.nodes.map(n => n.y)
-    const x2 = diagram.nodes.map(n => n.x + n.w)
-    const y2 = diagram.nodes.map(n => n.y + n.h)
-    const minX = Math.min(...xs) - 40; const minY = Math.min(...ys) - 40
-    const maxX = Math.max(...x2) + 40; const maxY = Math.max(...y2) + 40
-    const scale = Math.min(rect.width / (maxX - minX), rect.height / (maxY - minY), 1.5)
-    const x = rect.width / 2 - ((minX + maxX) / 2) * scale
-    const y = rect.height / 2 - ((minY + maxY) / 2) * scale
-    setViewport({ x, y, scale })
+    return new XMLSerializer().serializeToString(clone)
   }, [diagram.nodes])
 
-  // ─── Diagram management ───────────────────────────────────────────────────
+  const exportSvg = () => {
+    const str = buildExportSvg()
+    if (!str) return
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([str], { type: 'image/svg+xml' }))
+    a.download = `${diagram.name.replace(/\s+/g, '-').toLowerCase()}.svg`
+    a.click()
+  }
+
+  const exportPng = () => {
+    const str = buildExportSvg()
+    if (!str) return
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.naturalWidth * 2; canvas.height = img.naturalHeight * 2
+      const ctx = canvas.getContext('2d')!
+      ctx.scale(2, 2); ctx.drawImage(img, 0, 0)
+      const a = document.createElement('a')
+      a.href = canvas.toDataURL('image/png')
+      a.download = `${diagram.name.replace(/\s+/g, '-').toLowerCase()}.png`
+      a.click()
+    }
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(str)
+  }
+
+  // ── Embed into note ──
+  const handleEmbed = async () => {
+    if (!embedNote) return
+    setEmbedMsg('')
+    try {
+      const raw = await readNote(embedNote)
+      const tag = `\n\n![[diagram:${activeDiagramId}]]\n`
+      await saveNote(embedNote, raw + tag)
+      setEmbedMsg('✓ Diagram reference inserted into note.')
+    } catch {
+      setEmbedMsg('✗ Could not open that note.')
+    }
+  }
+
+  // ── Diagram management ──
   const newDiagram = () => {
     const d: Diagram = { id: uid(), name: 'Untitled Diagram', nodes: [], edges: [] }
     const next = [...diagrams, d]
@@ -567,24 +501,49 @@ export default function DiagramEditor() {
     setDiagrams(next); saveDiagrams(next)
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Derived selection ──
+  const selectedNode = useMemo(() => {
+    const sel = diagram.nodes.filter(n => selectedNodeIds.has(n.id))
+    return sel.length === 1 ? sel[0] : null
+  }, [diagram.nodes, selectedNodeIds])
+
+  const updateSelectedNodes = (patch: Partial<DiagramNode>) =>
+    updateDiagram({ nodes: diagram.nodes.map(n => selectedNodeIds.has(n.id) ? { ...n, ...patch } : n) })
+
+  const selectedEdge = selectedEdgeId ? diagram.edges.find(e => e.id === selectedEdgeId) ?? null : null
+  const updateSelectedEdge = (patch: Partial<DiagramEdge>) => {
+    if (!selectedEdgeId) return
+    updateDiagram({ edges: diagram.edges.map(e => e.id === selectedEdgeId ? { ...e, ...patch } : e) })
+  }
+
+  // ── Notes list for embed ──
+  const noteList = useMemo(() => [...index.keys()].filter(k => k.endsWith('.md')).sort(), [index])
+
+  // ── Styles ──
+  const inputCls = 'w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500'
+  const labelCls = 'text-xs text-gray-500 dark:text-gray-400 block mb-0.5'
+  const sectionCls = 'text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-1'
   const transform = `translate(${viewport.x},${viewport.y}) scale(${viewport.scale})`
 
-  const panelCls = 'text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1.5'
-  const inputCls = 'w-full text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500'
+  // ── Palette grouped by section ──
+  const paletteSections = useMemo(() => {
+    const m: Record<string, typeof PALETTE_SHAPES> = {}
+    PALETTE_SHAPES.forEach(p => { (m[p.section] ??= []).push(p) })
+    return Object.entries(m)
+  }, [])
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-surface-900">
 
-      {/* ── Top toolbar ── */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-surface-800">
+      {/* ── Toolbar ── */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 flex-shrink-0 bg-gray-50 dark:bg-surface-800">
         {/* Diagram tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto flex-1">
+        <div className="flex items-center gap-0.5 overflow-x-auto flex-1 min-w-0">
           {diagrams.map(d => (
-            <div key={d.id} className="flex items-center gap-0.5 flex-shrink-0">
+            <div key={d.id} className="flex items-center flex-shrink-0">
               <button
                 onClick={() => { setActiveDiagramId(d.id); setSelectedNodeIds(new Set()); setSelectedEdgeId(null) }}
-                className={`px-3 py-1 text-xs rounded-t border-b-2 transition-colors ${
+                className={`px-3 py-1.5 text-xs border-b-2 transition-colors ${
                   d.id === activeDiagramId
                     ? 'border-accent-500 text-accent-600 dark:text-accent-400 font-medium'
                     : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
@@ -595,103 +554,138 @@ export default function DiagramEditor() {
                     value={d.name}
                     onChange={e => renameDiagram(d.id, e.target.value)}
                     onClick={e => e.stopPropagation()}
-                    className="bg-transparent border-none outline-none text-xs w-28 min-w-0"
+                    className="bg-transparent border-none outline-none text-xs w-28"
                   />
                 ) : d.name}
               </button>
               {diagrams.length > 1 && (
-                <button
-                  onClick={() => deleteDiagram(d.id)}
-                  className="text-gray-300 hover:text-red-400 text-xs leading-none pb-0.5"
-                  title="Delete diagram"
-                >×</button>
+                <button onClick={() => deleteDiagram(d.id)}
+                  className="text-gray-300 hover:text-red-400 text-xs pr-1" title="Delete">×</button>
               )}
             </div>
           ))}
-          <button
-            onClick={newDiagram}
-            className="px-2 py-1 text-xs text-gray-400 hover:text-accent-500 flex-shrink-0"
-            title="New diagram"
-          >+ New</button>
+          <button onClick={newDiagram} className="px-2 py-1 text-xs text-gray-400 hover:text-accent-500 flex-shrink-0">
+            + New
+          </button>
         </div>
 
-        {/* Right toolbar actions */}
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        {/* Right actions */}
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {/* Connect toggle */}
           <button
-            title="Connect mode (C)"
-            onClick={() => setConnectFrom(v => v === null ? '' : null)}
-            className={`px-2 py-1 text-xs rounded border transition-colors ${
-              connectFrom !== null
+            onClick={() => { setConnectMode(v => !v); setConnectFromId(null) }}
+            className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded border transition-colors ${
+              connectMode
                 ? 'bg-accent-500 text-white border-accent-600'
                 : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
             }`}
+            title="Connect nodes (Escape to exit)"
           >
-            {connectFrom !== null ? '🔗 Click a node…' : '⚡ Connect'}
+            {connectMode
+              ? (connectFromId ? `→ Click target…` : '→ Click source…')
+              : '⚡ Connect'}
           </button>
-          <button onClick={fitView} title="Fit view"
-            className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button onClick={fitView} title="Fit all nodes in view"
+            className="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
             ⊡ Fit
           </button>
-          <button onClick={exportSvg} title="Export SVG"
-            className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button onClick={exportSvg}
+            className="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
             ↓ SVG
           </button>
-          <button onClick={exportPng} title="Export PNG"
-            className="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button onClick={exportPng}
+            className="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">
             ↓ PNG
           </button>
-          <button
-            onClick={() => setShowProps(v => !v)}
-            className={`px-2 py-1 text-xs rounded border transition-colors ${
+          <button onClick={() => setShowEmbed(v => !v)}
+            className={`px-2.5 py-1 text-xs rounded border transition-colors ${
+              showEmbed
+                ? 'bg-accent-500 text-white border-accent-600'
+                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
+            }`}
+            title="Embed diagram in a note">
+            ↗ Embed
+          </button>
+          <button onClick={() => setShowProps(v => !v)}
+            className={`px-2.5 py-1 text-xs rounded border transition-colors ${
               showProps
                 ? 'bg-accent-500 text-white border-accent-600'
                 : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-            }`}
-          >
+            }`}>
             ⚙ Props
           </button>
         </div>
       </div>
 
-      {/* ── Body: palette | canvas | props ── */}
+      {/* ── Embed panel ── */}
+      {showEmbed && (
+        <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-accent-50 dark:bg-accent-900/10 flex items-center gap-3 flex-shrink-0">
+          <span className="text-xs font-medium text-accent-700 dark:text-accent-300 whitespace-nowrap">Embed in note:</span>
+          <select
+            value={embedNote}
+            onChange={e => { setEmbedNote(e.target.value); setEmbedMsg('') }}
+            className="flex-1 text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none"
+          >
+            <option value="">— select a note —</option>
+            {noteList.map(k => <option key={k} value={k}>{k}</option>)}
+          </select>
+          <button
+            onClick={handleEmbed}
+            disabled={!embedNote}
+            className="px-3 py-1 text-xs bg-accent-500 text-white rounded hover:bg-accent-600 disabled:opacity-50"
+          >
+            Insert
+          </button>
+          {embedMsg && <span className="text-xs text-accent-600 dark:text-accent-400">{embedMsg}</span>}
+          <p className="text-xs text-gray-400 dark:text-gray-500 ml-2 hidden sm:block">
+            Inserts <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">![[diagram:{activeDiagramId}]]</code> at end of note
+          </p>
+        </div>
+      )}
+
+      {/* ── Body ── */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* Palette */}
-        <div className="w-20 flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex flex-col items-center py-3 gap-1 overflow-y-auto">
-          <p className="text-xs text-gray-400 mb-2 font-medium">Shapes</p>
-          {PALETTE_SHAPES.map(ps => (
-            <div
-              key={ps.shape}
-              draggable
-              onDragStart={() => { paletteDragRef.current = { shape: ps.shape } }}
-              onDragEnd={() => { paletteDragRef.current = null }}
-              className="w-14 h-14 flex flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 cursor-grab hover:border-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/20 transition-colors select-none"
-              title={`Drag to add ${ps.label}`}
-            >
-              <span className="text-xl leading-none">{ps.icon}</span>
-              <span className="text-[9px] text-gray-400 leading-none">{ps.label}</span>
+        {/* ── Shape palette ── */}
+        <div className="w-[76px] flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex flex-col py-2 overflow-y-auto">
+          {paletteSections.map(([section, shapes]) => (
+            <div key={section} className="mb-2 px-1">
+              <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400 text-center mb-1">{section}</p>
+              {shapes.map(ps => (
+                <div
+                  key={ps.shape}
+                  draggable
+                  onDragStart={() => { paletteDragRef.current = { shape: ps.shape } }}
+                  onDragEnd={() => { paletteDragRef.current = null }}
+                  className="w-full h-12 flex flex-col items-center justify-center gap-0.5 rounded border border-dashed border-gray-300 dark:border-gray-600 cursor-grab hover:border-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/20 mb-1 select-none transition-colors"
+                  title={`Drag to add ${ps.label}`}
+                >
+                  <span className="text-lg leading-none">{ps.icon}</span>
+                  <span className="text-[9px] text-gray-400 leading-none">{ps.label}</span>
+                </div>
+              ))}
             </div>
           ))}
 
-          <div className="mt-3 w-14 border-t border-gray-200 dark:border-gray-700 pt-2 text-center">
-            <p className="text-[9px] text-gray-400 mb-1.5">Colors</p>
-            {COLOR_PRESETS.map(c => (
-              <button
-                key={c}
-                onClick={() => updateSelectedNodes({ color: c })}
-                className="w-5 h-5 m-0.5 rounded-full border-2 border-transparent hover:border-white"
-                style={{ background: c }}
-                title={c}
-              />
-            ))}
+          {/* Quick color palette */}
+          <div className="mt-auto px-1 pt-2 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-[9px] text-gray-400 text-center mb-1">Color</p>
+            <div className="flex flex-wrap gap-0.5 justify-center">
+              {COLOR_PRESETS.map(c => (
+                <button key={c}
+                  onClick={() => updateSelectedNodes({ color: c })}
+                  className="w-5 h-5 rounded-full border-2 border-transparent hover:scale-110 transition-transform"
+                  style={{ background: c }} title={c} />
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Canvas */}
+        {/* ── Canvas ── */}
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden relative"
-          style={{ background: colors.bg, cursor: connectFrom !== null ? 'crosshair' : 'default' }}
+          style={{ background: colors.bg, cursor: connectMode ? 'crosshair' : 'default' }}
         >
           <svg
             ref={svgRef}
@@ -701,27 +695,24 @@ export default function DiagramEditor() {
             onDrop={handleSvgDrop}
           >
             <defs>
-              <pattern id="dg-grid" width={GRID * viewport.scale} height={GRID * viewport.scale}
+              <pattern id="dg-grid"
+                width={GRID * viewport.scale} height={GRID * viewport.scale}
                 x={viewport.x % (GRID * viewport.scale)} y={viewport.y % (GRID * viewport.scale)}
                 patternUnits="userSpaceOnUse">
                 <path d={`M ${GRID * viewport.scale} 0 L 0 0 0 ${GRID * viewport.scale}`}
                   fill="none" stroke={colors.gridLine} strokeWidth={0.5} />
               </pattern>
-              <filter id="dg-shadow">
-                <feDropShadow dx="1" dy="2" stdDeviation="3" floodColor={colors.shadow} />
-              </filter>
               <marker id="dg-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStroke} />
               </marker>
               <marker id="dg-arrow-sel" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
                 <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStrokeSel} />
               </marker>
-              <marker id="dg-arrow-start" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto-start-reverse">
+              <marker id="dg-arrow-both" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto-start-reverse">
                 <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStroke} />
               </marker>
             </defs>
 
-            {/* Grid */}
             <rect width="100%" height="100%" fill="url(#dg-grid)" />
 
             <g data-viewport transform={transform}>
@@ -733,35 +724,24 @@ export default function DiagramEditor() {
                 const isSel = edge.id === selectedEdgeId
                 const d = edgePath(from, to)
                 const stroke = isSel ? colors.edgeStrokeSel : colors.edgeStroke
-                const markEnd = edge.arrow !== 'none' ? `url(#dg-arrow${isSel ? '-sel' : ''})` : undefined
-                const markStart = edge.arrow === 'both' ? `url(#dg-arrow-start)` : undefined
-                const midPt = (() => {
-                  // approximate midpoint from the bezier
-                  const [fx, fy] = getBorderPoint(from, to.x + to.w / 2, to.y + to.h / 2)
-                  const [tx, ty] = getBorderPoint(to, from.x + from.w / 2, from.y + from.h / 2)
-                  return [(fx + tx) / 2, (fy + ty) / 2] as [number, number]
-                })()
+                const [fx, fy] = getBorderPoint(from, to.x + to.w / 2, to.y + to.h / 2)
+                const [tx, ty] = getBorderPoint(to, from.x + from.w / 2, from.y + from.h / 2)
+                const mid: [number, number] = [(fx + tx) / 2, (fy + ty) / 2]
                 return (
                   <g key={edge.id} style={{ cursor: 'pointer' }}>
-                    {/* Invisible wider hit area */}
-                    <path d={d} fill="none" stroke="transparent" strokeWidth={12}
-                      onClick={e => { e.stopPropagation(); setSelectedEdgeId(edge.id); setSelectedNodeIds(new Set()) }}
-                    />
-                    <path
-                      d={d} fill="none" stroke={stroke}
-                      strokeWidth={isSel ? 2 : 1.5}
+                    <path d={d} fill="none" stroke="transparent" strokeWidth={14}
+                      onClick={e => { e.stopPropagation(); setSelectedEdgeId(edge.id); setSelectedNodeIds(new Set()) }} />
+                    <path d={d} fill="none" stroke={stroke}
+                      strokeWidth={isSel ? 2.5 : 1.5}
                       strokeDasharray={edge.style === 'dashed' ? '6 4' : edge.style === 'dotted' ? '2 4' : undefined}
-                      markerEnd={markEnd}
-                      markerStart={markStart}
+                      markerEnd={edge.arrow !== 'none' ? `url(#dg-arrow${isSel ? '-sel' : ''})` : undefined}
+                      markerStart={edge.arrow === 'both' ? 'url(#dg-arrow-both)' : undefined}
                     />
                     {edge.label && (
-                      <text
-                        x={midPt[0]} y={midPt[1] - 6}
-                        textAnchor="middle" fontSize={10}
+                      <text x={mid[0]} y={mid[1] - 7} textAnchor="middle" fontSize={10}
                         fill={isSel ? colors.edgeStrokeSel : colors.edgeStroke}
                         style={{ userSelect: 'none' }}
-                        onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditingLabel({ type: 'edge', id: edge.id, value: edge.label }) }}
-                      >
+                        onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditingLabel({ type: 'edge', id: edge.id, value: edge.label }) }}>
                         {edge.label}
                       </text>
                     )}
@@ -772,24 +752,40 @@ export default function DiagramEditor() {
               {/* Nodes */}
               {diagram.nodes.map(node => {
                 const isSel = selectedNodeIds.has(node.id)
-                const isConnSrc = connectFrom === node.id
+                const isConnSrc = connectMode && connectFromId === node.id
+                const isConnTarget = connectMode && connectFromId !== null && connectFromId !== node.id
+                const icon = networkIcon(node.shape)
                 return (
                   <g
                     key={node.id}
-                    style={{ cursor: connectFrom !== null ? 'crosshair' : 'grab' }}
+                    style={{ cursor: connectMode ? 'crosshair' : 'grab' }}
                     onMouseDown={e => handleNodeMouseDown(e, node.id)}
                     onDoubleClick={e => handleNodeDblClick(e, node.id)}
                   >
-                    {/* Shadow */}
-                    <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.15)"
+                    {/* Drop shadow */}
+                    <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.12)"
                       transform="translate(2,3)" style={{ pointerEvents: 'none' }} />
-                    {/* Fill */}
+                    {/* Shape fill */}
                     <path d={nodeShapePath(node)} fill={node.color}
                       stroke={isConnSrc ? '#22d3ee' : isSel ? colors.nodeStrokeSel : colors.nodeStroke}
                       strokeWidth={isConnSrc ? 3 : isSel ? 2.5 : 1.5}
                       strokeDasharray={isConnSrc ? '5 3' : undefined}
                     />
-                    {/* Label */}
+                    {/* Connect target highlight ring */}
+                    {isConnTarget && (
+                      <path d={nodeShapePath(node)} fill="none"
+                        stroke="#22d3ee" strokeWidth={2.5} opacity={0.7}
+                        style={{ pointerEvents: 'none' }} />
+                    )}
+                    {/* Network icon */}
+                    {icon && (
+                      <text
+                        x={node.x + node.w / 2} y={node.y + node.h / 2 - 8}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize={20} style={{ pointerEvents: 'none', userSelect: 'none' }}
+                      >{icon}</text>
+                    )}
+                    {/* Inline label editor */}
                     {editingLabel?.type === 'node' && editingLabel.id === node.id ? (
                       <foreignObject x={node.x + 4} y={node.y + node.h / 2 - 12} width={node.w - 8} height={24}>
                         <input
@@ -809,196 +805,204 @@ export default function DiagramEditor() {
                     ) : (
                       <text
                         x={node.x + node.w / 2}
-                        y={node.y + node.h / 2}
-                        textAnchor="middle"
-                        dominantBaseline="middle"
-                        fontSize={12}
-                        fontWeight="500"
-                        fill={node.textColor}
+                        y={icon ? node.y + node.h - 12 : node.y + node.h / 2}
+                        textAnchor="middle" dominantBaseline="middle"
+                        fontSize={11} fontWeight="500" fill={node.textColor}
                         style={{ pointerEvents: 'none', userSelect: 'none' }}
                       >
                         {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
                       </text>
                     )}
-                    {/* Selection handles */}
-                    {isSel && (
-                      <>
-                        {[
-                          [node.x, node.y], [node.x + node.w, node.y],
-                          [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
-                        ].map(([hx, hy], i) => (
-                          <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
-                            rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
-                            style={{ pointerEvents: 'none' }} />
-                        ))}
-                      </>
-                    )}
-                    {/* Connect hint ring */}
-                    {connectFrom !== null && connectFrom !== node.id && (
-                      <path d={nodeShapePath(node)} fill="none"
-                        stroke="#22d3ee" strokeWidth={2} opacity={0.5}
+                    {/* Selection corner handles */}
+                    {isSel && [
+                      [node.x, node.y], [node.x + node.w, node.y],
+                      [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
+                    ].map(([hx, hy], i) => (
+                      <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
+                        rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
                         style={{ pointerEvents: 'none' }} />
-                    )}
-                    {/* "Click to connect from" badge */}
-                    {connectFrom === '' && (
-                      <text x={node.x + node.w / 2} y={node.y - 8}
-                        textAnchor="middle" fontSize={9} fill="#22d3ee"
-                        style={{ pointerEvents: 'none', userSelect: 'none' }}>
-                        click to start
-                      </text>
-                    )}
+                    ))}
                   </g>
                 )
               })}
             </g>
           </svg>
 
-          {/* Zoom indicator */}
+          {/* Connect mode overlay hint */}
+          {connectMode && (
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+              <div className="bg-accent-500 text-white text-xs px-3 py-1.5 rounded-full shadow-lg">
+                {connectFromId ? '→ Now click the target node' : '→ Click the source node'}
+                <span className="ml-2 opacity-70">· Esc to cancel</span>
+              </div>
+            </div>
+          )}
+
+          {/* Zoom % */}
           <div className="absolute bottom-3 right-3 text-xs text-gray-400 dark:text-gray-500 bg-white/80 dark:bg-gray-900/80 px-2 py-1 rounded border border-gray-200 dark:border-gray-700 select-none">
             {Math.round(viewport.scale * 100)}%
           </div>
 
-          {/* Empty state hint */}
+          {/* Empty state */}
           {diagram.nodes.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center text-gray-400 dark:text-gray-600">
-                <p className="text-lg font-medium mb-1">Drag shapes onto the canvas</p>
-                <p className="text-sm">or use ⚡ Connect to link nodes</p>
-                <p className="text-xs mt-2 opacity-70">Scroll to zoom · Drag canvas to pan · Double-click node to rename</p>
+                <p className="text-base font-medium mb-1">Drag shapes onto the canvas</p>
+                <p className="text-sm">Use ⚡ Connect to draw arrows between nodes</p>
+                <p className="text-xs mt-2 opacity-70">Scroll to zoom · Drag canvas to pan · Dbl-click to rename</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* Properties panel */}
+        {/* ── Properties panel ── */}
         {showProps && (
-          <div className="w-52 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 overflow-y-auto p-3 space-y-4">
-            {selectedNode && (
-              <>
+          <div className="w-52 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 overflow-y-auto p-3 space-y-4 text-xs">
+
+            {/* Connect defaults */}
+            <div>
+              <p className={sectionCls}>New Connection</p>
+              <div className="space-y-1.5">
                 <div>
-                  <p className={panelCls}>Node</p>
-                  <div className="space-y-2">
+                  <label className={labelCls}>Style</label>
+                  <select value={defaultEdgeStyle} onChange={e => setDefaultEdgeStyle(e.target.value as DiagramEdge['style'])} className={inputCls}>
+                    <option value="solid">Solid</option>
+                    <option value="dashed">Dashed</option>
+                    <option value="dotted">Dotted</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Arrow</label>
+                  <select value={defaultEdgeArrow} onChange={e => setDefaultEdgeArrow(e.target.value as DiagramEdge['arrow'])} className={inputCls}>
+                    <option value="end">→ End only</option>
+                    <option value="both">↔ Both ends</option>
+                    <option value="none">— None</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Selected node */}
+            {selectedNode && (
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+                <p className={sectionCls}>Node</p>
+                <div className="space-y-1.5">
+                  <div>
+                    <label className={labelCls}>Label</label>
+                    <input value={selectedNode.label} onChange={e => updateSelectedNodes({ label: e.target.value })} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Shape</label>
+                    <select value={selectedNode.shape} onChange={e => updateSelectedNodes({ shape: e.target.value as NodeShape })} className={inputCls}>
+                      {paletteSections.map(([sec, shapes]) => (
+                        <optgroup key={sec} label={sec}>
+                          {shapes.map(ps => <option key={ps.shape} value={ps.shape}>{ps.label}</option>)}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Fill</label>
+                    <div className="flex flex-wrap gap-0.5 mb-1">
+                      {COLOR_PRESETS.map(c => (
+                        <button key={c} onClick={() => updateSelectedNodes({ color: c })}
+                          className={`w-5 h-5 rounded-full border-2 transition-transform ${selectedNode.color === c ? 'border-white scale-110' : 'border-transparent'}`}
+                          style={{ background: c }} />
+                      ))}
+                    </div>
+                    <input type="color" value={selectedNode.color}
+                      onChange={e => updateSelectedNodes({ color: e.target.value })}
+                      className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Text color</label>
+                    <input type="color" value={selectedNode.textColor}
+                      onChange={e => updateSelectedNodes({ textColor: e.target.value })}
+                      className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
                     <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Label</label>
-                      <input
-                        value={selectedNode.label}
-                        onChange={e => updateSelectedNodes({ label: e.target.value })}
-                        className={inputCls}
-                      />
+                      <label className={labelCls}>W</label>
+                      <input type="number" value={selectedNode.w} min={40}
+                        onChange={e => updateSelectedNodes({ w: Math.max(40, Number(e.target.value)) })}
+                        className={inputCls} />
                     </div>
                     <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Shape</label>
-                      <select
-                        value={selectedNode.shape}
-                        onChange={e => updateSelectedNodes({ shape: e.target.value as NodeShape })}
-                        className={inputCls}
-                      >
-                        {PALETTE_SHAPES.map(ps => (
-                          <option key={ps.shape} value={ps.shape}>{ps.label}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Fill color</label>
-                      <div className="flex flex-wrap gap-1 mb-1">
-                        {COLOR_PRESETS.map(c => (
-                          <button key={c}
-                            onClick={() => updateSelectedNodes({ color: c })}
-                            className={`w-5 h-5 rounded-full border-2 ${selectedNode.color === c ? 'border-white scale-110' : 'border-transparent'}`}
-                            style={{ background: c }} />
-                        ))}
-                      </div>
-                      <input type="color" value={selectedNode.color}
-                        onChange={e => updateSelectedNodes({ color: e.target.value })}
-                        className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Text color</label>
-                      <input type="color" value={selectedNode.textColor}
-                        onChange={e => updateSelectedNodes({ textColor: e.target.value })}
-                        className="w-full h-7 rounded cursor-pointer border border-gray-300 dark:border-gray-600" />
-                    </div>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      <div>
-                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Width</label>
-                        <input type="number" value={selectedNode.w} min={40}
-                          onChange={e => updateSelectedNodes({ w: Number(e.target.value) })}
-                          className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Height</label>
-                        <input type="number" value={selectedNode.h} min={30}
-                          onChange={e => updateSelectedNodes({ h: Number(e.target.value) })}
-                          className={inputCls} />
-                      </div>
+                      <label className={labelCls}>H</label>
+                      <input type="number" value={selectedNode.h} min={30}
+                        onChange={e => updateSelectedNodes({ h: Math.max(30, Number(e.target.value)) })}
+                        className={inputCls} />
                     </div>
                   </div>
+                  <button
+                    onClick={() => {
+                      const id = selectedNode.id
+                      updateDiagram({
+                        nodes: diagram.nodes.filter(n => n.id !== id),
+                        edges: diagram.edges.filter(e => e.fromId !== id && e.toId !== id),
+                      })
+                      setSelectedNodeIds(new Set())
+                    }}
+                    className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100"
+                  >Delete node</button>
                 </div>
-              </>
+              </div>
             )}
 
+            {/* Selected edge */}
             {selectedEdge && (
-              <div>
-                <p className={panelCls}>Edge</p>
-                <div className="space-y-2">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+                <p className={sectionCls}>Edge</p>
+                <div className="space-y-1.5">
                   <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Label</label>
-                    <input
-                      value={selectedEdge.label}
-                      onChange={e => updateSelectedEdge({ label: e.target.value })}
-                      className={inputCls}
-                    />
+                    <label className={labelCls}>Label</label>
+                    <input value={selectedEdge.label}
+                      onChange={e => updateSelectedEdge({ label: e.target.value })} className={inputCls} />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Style</label>
+                    <label className={labelCls}>Style</label>
                     <select value={selectedEdge.style}
-                      onChange={e => updateSelectedEdge({ style: e.target.value as DiagramEdge['style'] })}
-                      className={inputCls}>
+                      onChange={e => updateSelectedEdge({ style: e.target.value as DiagramEdge['style'] })} className={inputCls}>
                       <option value="solid">Solid</option>
                       <option value="dashed">Dashed</option>
                       <option value="dotted">Dotted</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500 dark:text-gray-400 block mb-0.5">Arrow</label>
+                    <label className={labelCls}>Arrow</label>
                     <select value={selectedEdge.arrow}
-                      onChange={e => updateSelectedEdge({ arrow: e.target.value as DiagramEdge['arrow'] })}
-                      className={inputCls}>
-                      <option value="end">→ End</option>
-                      <option value="both">↔ Both</option>
+                      onChange={e => updateSelectedEdge({ arrow: e.target.value as DiagramEdge['arrow'] })} className={inputCls}>
+                      <option value="end">→ End only</option>
+                      <option value="both">↔ Both ends</option>
                       <option value="none">— None</option>
                     </select>
                   </div>
                   <button
                     onClick={() => { updateDiagram({ edges: diagram.edges.filter(e => e.id !== selectedEdgeId) }); setSelectedEdgeId(null) }}
-                    className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40"
-                  >
-                    Delete edge
-                  </button>
+                    className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100"
+                  >Delete edge</button>
                 </div>
               </div>
             )}
 
             {!selectedNode && !selectedEdge && (
-              <div className="text-xs text-gray-400 dark:text-gray-500 text-center py-6">
-                Select a node or edge<br />to edit properties
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-3 text-gray-400 dark:text-gray-500 text-center py-4">
+                Select a node or edge<br />to edit its properties
               </div>
             )}
 
+            {/* Canvas info */}
             <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
-              <p className={panelCls}>Canvas</p>
-              <p className="text-xs text-gray-400 mb-1">Nodes: {diagram.nodes.length}</p>
-              <p className="text-xs text-gray-400 mb-2">Edges: {diagram.edges.length}</p>
+              <p className={sectionCls}>Canvas</p>
+              <p className="text-gray-400 mb-1">{diagram.nodes.length} nodes · {diagram.edges.length} edges</p>
               <button
                 onClick={() => {
                   if (!confirm('Clear all nodes and edges?')) return
                   updateDiagram({ nodes: [], edges: [] })
                   setSelectedNodeIds(new Set()); setSelectedEdgeId(null)
                 }}
-                className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100 dark:hover:bg-red-900/40"
-              >
-                Clear canvas
-              </button>
+                className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100"
+              >Clear canvas</button>
             </div>
           </div>
         )}

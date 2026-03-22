@@ -6,6 +6,7 @@ import rehypeReact from 'rehype-react'
 import React, { createElement, Fragment } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
 import MermaidDiagram from '../../components/MermaidDiagram'
+import DiagramEmbed from '../../components/DiagramEmbed'
 
 // Simple frontmatter parser (YAML block between --- delimiters)
 export function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -50,12 +51,14 @@ export function parseFrontmatter(content: string): { frontmatter: Record<string,
 }
 
 // Wikilink: [[Note Name]] or [[Note Name|Alias]]
+// Also handles embed syntax: ![[diagram:ID]]
 function remarkWikilinks() {
   return (tree: import('mdast').Root) => {
     const visit = (node: import('mdast').Node) => {
       if (node.type === 'text') {
         const text = (node as import('mdast').Text).value
-        const pattern = /\[\[([^\]]+)\]\]/g
+        // Match both ![[...]] (embed) and [[...]] (link)
+        const pattern = /(!?)\[\[([^\]]+)\]\]/g
         let match
         const parts: import('mdast').Node[] = []
         let last = 0
@@ -63,12 +66,24 @@ function remarkWikilinks() {
           if (match.index > last) {
             parts.push({ type: 'text', value: text.slice(last, match.index) } as import('mdast').Text)
           }
-          const [name, alias] = match[1].split('|')
-          parts.push({
-            type: 'link',
-            url: `wikilink:${name.trim()}`,
-            children: [{ type: 'text', value: (alias || name).trim() } as import('mdast').Text],
-          } as import('mdast').Link)
+          const isEmbed = match[1] === '!'
+          const inner = match[2]
+          if (isEmbed && inner.startsWith('diagram:')) {
+            // Diagram embed: ![[diagram:ID]]
+            const diagramId = inner.slice('diagram:'.length).trim()
+            parts.push({
+              type: 'link',
+              url: `diagram-embed:${diagramId}`,
+              children: [{ type: 'text', value: diagramId } as import('mdast').Text],
+            } as import('mdast').Link)
+          } else {
+            const [name, alias] = inner.split('|')
+            parts.push({
+              type: 'link',
+              url: `wikilink:${name.trim()}`,
+              children: [{ type: 'text', value: (alias || name).trim() } as import('mdast').Text],
+            } as import('mdast').Link)
+          }
           last = match.index + match[0].length
         }
         if (parts.length > 0) {
@@ -99,6 +114,10 @@ export function buildProcessor(onWikiLink?: (name: string) => void) {
       jsxs,
       components: {
         a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
+          if (href?.startsWith('diagram-embed:')) {
+            const diagramId = href.slice('diagram-embed:'.length)
+            return React.createElement(DiagramEmbed, { diagramId })
+          }
           if (href?.startsWith('wikilink:')) {
             const name = href.slice(9)
             return React.createElement('span', {
