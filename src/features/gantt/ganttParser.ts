@@ -48,6 +48,7 @@ export function parseGanttTasks(index: Map<string, NoteIndex>): GanttProject[] {
       dependencies: Array.isArray(fm.depends_on) ? fm.depends_on.join(',') : fm.depends_on ? String(fm.depends_on) : '',
       notePath: note.path,
       project: projectName,
+      parentTaskId: fm.parent_task_id ? String(fm.parent_task_id) : undefined,
     }
     project.tasks.push(task)
   }

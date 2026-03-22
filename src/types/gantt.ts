@@ -8,6 +8,7 @@ export interface GanttTask {
   custom_class?: string
   notePath?: string
   project?: string
+  parentTaskId?: string
 }
 
 export interface GanttProject {
