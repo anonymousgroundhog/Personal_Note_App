@@ -6,6 +6,7 @@ import CalendarView from './features/calendar/CalendarView'
 import TagBrowser from './features/tags/TagBrowser'
 import GraphView from './features/graph/GraphView'
 import TasksView from './features/tasks/TasksView'
+import SyncView from './features/sync/SyncView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore } from './stores/vaultStore'
@@ -59,7 +60,9 @@ export default function App() {
     <div className="flex h-screen overflow-hidden bg-white dark:bg-surface-900">
       <Sidebar />
       <main className="flex-1 flex overflow-hidden">
-        {!rootHandle ? (
+        {activeView === 'sync' ? (
+          <SyncView />
+        ) : !rootHandle ? (
           <WelcomeScreen />
         ) : (
           <>
