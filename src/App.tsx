@@ -7,6 +7,7 @@ import TagBrowser from './features/tags/TagBrowser'
 import GraphView from './features/graph/GraphView'
 import TasksView from './features/tasks/TasksView'
 import SyncView from './features/sync/SyncView'
+import DiagramEditor from './features/diagram/DiagramEditor'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore } from './stores/vaultStore'
@@ -62,6 +63,8 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden">
         {activeView === 'sync' ? (
           <SyncView />
+        ) : activeView === 'diagram' ? (
+          <DiagramEditor />
         ) : !rootHandle ? (
           <WelcomeScreen />
         ) : (

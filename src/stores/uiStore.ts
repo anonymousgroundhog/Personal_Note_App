@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type AppView = 'notes' | 'gantt' | 'calendar' | 'tags' | 'graph' | 'tasks' | 'sync'
+export type AppView = 'notes' | 'gantt' | 'calendar' | 'tags' | 'graph' | 'tasks' | 'sync' | 'diagram'
 
 interface UiState {
   activeView: AppView

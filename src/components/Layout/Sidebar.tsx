@@ -1,18 +1,19 @@
 import React from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github } from 'lucide-react'
+import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore } from '../../stores/vaultStore'
 import FileTree from './FileTree'
 
-const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string }[] = [
-  { view: 'notes', icon: <FileText size={18} />, label: 'Notes' },
-  { view: 'gantt', icon: <BarChart2 size={18} />, label: 'Gantt' },
-  { view: 'calendar', icon: <Calendar size={18} />, label: 'Calendar' },
-  { view: 'tags', icon: <Tag size={18} />, label: 'Tags' },
-  { view: 'graph', icon: <Network size={18} />, label: 'Graph' },
-  { view: 'tasks', icon: <CheckSquare size={18} />, label: 'Tasks' },
-  { view: 'sync', icon: <Github size={18} />, label: 'Sync' },
+const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
+  { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes' },
+  { view: 'gantt',    icon: <BarChart2 size={18} />,   label: 'Gantt' },
+  { view: 'calendar', icon: <Calendar size={18} />,    label: 'Calendar' },
+  { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags' },
+  { view: 'graph',    icon: <Network size={18} />,      label: 'Graph' },
+  { view: 'tasks',    icon: <CheckSquare size={18} />,  label: 'Tasks' },
+  { view: 'sync',     icon: <Github size={18} />,       label: 'Sync' },
+  { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams', section: 'Tools' },
 ]
 
 export default function Sidebar() {
@@ -61,20 +62,30 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="p-2 space-y-0.5">
-        {NAV_ITEMS.map(({ view, icon, label }) => (
-          <button
-            key={view}
-            onClick={() => setActiveView(view)}
-            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
-              activeView === view
-                ? 'bg-accent-500 text-white'
-                : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-            title={!sidebarOpen ? label : undefined}
-          >
-            {icon}
-            {sidebarOpen && label}
-          </button>
+        {NAV_ITEMS.map(({ view, icon, label, section }, idx) => (
+          <React.Fragment key={view}>
+            {section && (
+              <div className={`${idx > 0 ? 'mt-2 pt-2 border-t border-gray-200 dark:border-gray-700' : ''}`}>
+                {sidebarOpen && (
+                  <p className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+                    {section}
+                  </p>
+                )}
+              </div>
+            )}
+            <button
+              onClick={() => setActiveView(view)}
+              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                activeView === view
+                  ? 'bg-accent-500 text-white'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+              }`}
+              title={!sidebarOpen ? label : undefined}
+            >
+              {icon}
+              {sidebarOpen && label}
+            </button>
+          </React.Fragment>
         ))}
       </nav>
 
