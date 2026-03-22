@@ -390,7 +390,7 @@ Task for project: ${newTask.project}
               </p>
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {allTasks
-                  .filter(t => t.id !== editState.task.id)
+                  .filter(t => t.id !== editState.task.id && t.project === editState.task.project)
                   .map(t => {
                     const checked = editState.depends_on.includes(t.id)
                     return (
@@ -410,7 +410,7 @@ Task for project: ${newTask.project}
                           className="accent-accent-500"
                         />
                         <span className={`text-xs truncate ${checked ? 'text-accent-500 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
-                          {t.name}
+                          {t.name.replace(/^\[.+?\]\s*/, '')}
                         </span>
                       </label>
                     )
