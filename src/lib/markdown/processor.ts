@@ -5,6 +5,7 @@ import remarkRehype from 'remark-rehype'
 import rehypeReact from 'rehype-react'
 import React, { createElement, Fragment } from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
+import MermaidDiagram from '../../components/MermaidDiagram'
 
 // Simple frontmatter parser (YAML block between --- delimiters)
 export function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -107,6 +108,18 @@ export function buildProcessor(onWikiLink?: (name: string) => void) {
             }, children)
           }
           return React.createElement('a', { href, target: '_blank', rel: 'noreferrer', ...props }, children)
+        },
+        pre: ({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) => {
+          // Intercept mermaid fenced code blocks
+          const child = React.Children.toArray(children)[0]
+          if (React.isValidElement(child)) {
+            const childProps = child.props as { className?: string; children?: React.ReactNode }
+            if (childProps.className?.includes('language-mermaid')) {
+              const code = String(childProps.children || '').replace(/\n$/, '')
+              return React.createElement(MermaidDiagram, { code })
+            }
+          }
+          return React.createElement('pre', props, children)
         },
         blockquote: ({ children, ...props }: React.BlockquoteHTMLAttributes<HTMLElement>) => {
           const childArray = React.Children.toArray(children)

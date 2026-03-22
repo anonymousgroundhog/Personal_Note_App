@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(npm --version)",
+      "Read(//home/sean/Documents/Projects/Personal/**)",
+      "Bash(node:*)",
+      "Bash(npm info:*)",
+      "Bash(npm create:*)",
+      "Bash(npx create-vite@latest . --template react-ts)",
+      "Bash(yes)",
+      "Bash(cp -r myapp/* myapp/.* .)",
+      "Bash(rm -rf myapp)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(./node_modules/.bin/tailwindcss init:*)",
+      "Bash(ls /home/sean/Documents/Projects/Personal/Personal_Note_App/*.config*)",
+      "Bash(npx tsc:*)",
+      "Bash(sed -i \"s/^import { FileTreeNode }/import type { FileTreeNode }/\" src/components/Layout/FileTree.tsx)",
+      "Bash(sed -i \"s/^import { AppView }/import type { AppView }/\" src/components/Layout/Sidebar.tsx)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

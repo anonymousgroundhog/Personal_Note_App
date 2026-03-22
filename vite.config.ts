@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     include: ['frappe-gantt', 'ical.js'],
+    exclude: ['mermaid'],
   },
   build: {
     target: 'esnext',

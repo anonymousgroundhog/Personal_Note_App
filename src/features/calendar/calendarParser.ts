@@ -29,7 +29,7 @@ export function parseCalendarEvents(index: Map<string, NoteIndex>): CalendarEven
         borderColor: colorForType(String(fm.type || '')),
         extendedProps: {
           notePath: note.path,
-          calendarId: String(fm.calendar_id || 'local'),
+          calendarId: String(fm.calendar_id || fm.project || fm.type || 'local'),
           location: fm.location ? String(fm.location) : undefined,
           attendees: Array.isArray(fm.attendees) ? fm.attendees : undefined,
           source,
@@ -46,7 +46,7 @@ export function parseCalendarEvents(index: Map<string, NoteIndex>): CalendarEven
         borderColor: colorForType(String(fm.type || '')),
         extendedProps: {
           notePath: note.path,
-          calendarId: 'local',
+          calendarId: String(fm.calendar_id || fm.project || fm.type || 'local'),
           source,
         },
       })
