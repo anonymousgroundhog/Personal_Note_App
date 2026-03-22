@@ -30,6 +30,7 @@ async function buildIndex(rootHandle: FileSystemDirectoryHandle): Promise<Map<st
         name,
         frontmatter,
         excerpt: body.slice(0, 200).replace(/#+\s/g, '').trim(),
+        body,
       })
     } catch {
       // skip unreadable files
@@ -88,7 +89,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     const { frontmatter, body } = parseFrontmatter(content)
     const name = path.split('/').pop()?.replace(/\.md$/, '') || path
     const index = new Map(get().index)
-    index.set(path, { path, name, frontmatter, excerpt: body.slice(0, 200).replace(/#+\s/g, '').trim() })
+    index.set(path, { path, name, frontmatter, excerpt: body.slice(0, 200).replace(/#+\s/g, '').trim(), body })
     set({ index })
   },
 

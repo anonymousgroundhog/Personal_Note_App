@@ -27,6 +27,7 @@ export interface NoteIndex {
   name: string
   frontmatter: NoteFrontmatter
   excerpt: string
+  body: string       // full markdown body (after frontmatter), used for wikilink extraction
 }
 
 export interface Note {
