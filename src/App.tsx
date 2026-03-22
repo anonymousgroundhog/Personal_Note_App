@@ -4,6 +4,7 @@ import EditorView from './features/editor/EditorView'
 import GanttView from './features/gantt/GanttView'
 import CalendarView from './features/calendar/CalendarView'
 import TagBrowser from './features/tags/TagBrowser'
+import GraphView from './features/graph/GraphView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore } from './stores/vaultStore'
@@ -65,6 +66,7 @@ export default function App() {
             {activeView === 'gantt' && <GanttView />}
             {activeView === 'calendar' && <CalendarView />}
             {activeView === 'tags' && <TagBrowser />}
+            {activeView === 'graph' && <GraphView />}
           </>
         )}
       </main>

@@ -37,22 +37,7 @@
   }
 }
 
-/* Frappe Gantt overrides */
-.gantt .bar-label {
-  font-size: 12px;
-}
-.gantt .grid-header {
-  @apply fill-gray-100;
-}
-.dark .gantt .grid-header {
-  fill: #1e1e1e;
-}
-.dark .gantt .grid-row:nth-child(even) {
-  fill: #1a1a1a;
-}
-.dark .gantt .tick {
-  stroke: #333;
-}
+/* Custom Gantt SVG — no frappe-gantt classes needed */
 
 /* FullCalendar dark mode */
 .dark .fc {

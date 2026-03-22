@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkRehype from 'remark-rehype'
 import rehypeReact from 'rehype-react'
 import React, { createElement, Fragment } from 'react'
+import { jsx, jsxs } from 'react/jsx-runtime'
 
 // Simple frontmatter parser (YAML block between --- delimiters)
 export function parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -93,6 +94,8 @@ export function buildProcessor(onWikiLink?: (name: string) => void) {
     .use(rehypeReact, {
       createElement,
       Fragment,
+      jsx,
+      jsxs,
       components: {
         a: ({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) => {
           if (href?.startsWith('wikilink:')) {

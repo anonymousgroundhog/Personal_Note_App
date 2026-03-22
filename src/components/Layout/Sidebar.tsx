@@ -1,5 +1,5 @@
 import React from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight } from 'lucide-react'
+import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore } from '../../stores/vaultStore'
@@ -10,6 +10,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string }[] = [
   { view: 'gantt', icon: <BarChart2 size={18} />, label: 'Gantt' },
   { view: 'calendar', icon: <Calendar size={18} />, label: 'Calendar' },
   { view: 'tags', icon: <Tag size={18} />, label: 'Tags' },
+  { view: 'graph', icon: <Network size={18} />, label: 'Graph' },
 ]
 
 export default function Sidebar() {
