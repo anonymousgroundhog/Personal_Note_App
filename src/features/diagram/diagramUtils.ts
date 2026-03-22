@@ -40,13 +40,13 @@ export function nodeShapePath(n: DiagramNode): string {
         `Z`,
       ].join(' ')
     }
-    // Network shapes share rect bounds
+    // Network shapes render as standalone icons — no box path
     case 'server':
     case 'cloud':
     case 'router':
     case 'firewall':
     case 'laptop':
     case 'phone':
-      return `M ${x} ${y} h ${w} v ${h} h ${-w} Z`
+      return ''
   }
 }

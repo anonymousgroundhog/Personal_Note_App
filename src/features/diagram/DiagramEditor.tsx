@@ -21,6 +21,7 @@ export interface DiagramNode {
   label: string
   color: string
   textColor: string
+  strokeWidth: number
 }
 
 export interface DiagramEdge {
@@ -30,6 +31,7 @@ export interface DiagramEdge {
   label: string
   style: 'solid' | 'dashed' | 'dotted'
   arrow: 'end' | 'both' | 'none'
+  strokeWidth: number
 }
 
 export interface Diagram {
@@ -37,6 +39,7 @@ export interface Diagram {
   name: string
   nodes: DiagramNode[]
   edges: DiagramEdge[]
+  transparentBg: boolean
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -84,6 +87,9 @@ function networkIcon(shape: NodeShape): string | null {
 
 // ─── Geometry helpers ─────────────────────────────────────────────────────────
 
+const NETWORK_SHAPES = new Set<NodeShape>(['server','cloud','router','firewall','laptop','phone'])
+function isNetworkShape(shape: NodeShape) { return NETWORK_SHAPES.has(shape) }
+
 function uid() { return Math.random().toString(36).slice(2, 9) }
 
 function getNodeCenter(n: DiagramNode): [number, number] {
@@ -93,10 +99,17 @@ function getNodeCenter(n: DiagramNode): [number, number] {
 function getBorderPoint(n: DiagramNode, tx: number, ty: number): [number, number] {
   const cx = n.x + n.w / 2
   const cy = n.y + n.h / 2
+  // Network shapes have no box — connect from a small radius around icon center
+  if (isNetworkShape(n.shape)) {
+    const r = 28
+    const dx = tx - cx, dy = ty - cy
+    if (dx === 0 && dy === 0) return [cx, cy]
+    const len = Math.hypot(dx, dy)
+    return [cx + (dx / len) * r, cy + (dy / len) * r]
+  }
   const dx = tx - cx
   const dy = ty - cy
   if (dx === 0 && dy === 0) return [cx, cy]
-
   if (n.shape === 'circle') {
     const r = Math.min(n.w, n.h) / 2
     const len = Math.hypot(dx, dy)
@@ -130,7 +143,7 @@ function loadDiagrams(): Diagram[] {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) return JSON.parse(raw) as Diagram[]
   } catch {}
-  return [{ id: uid(), name: 'Untitled Diagram', nodes: [], edges: [] }]
+  return [{ id: uid(), name: 'Untitled Diagram', nodes: [], edges: [], transparentBg: false }]
 }
 
 function saveDiagrams(diagrams: Diagram[]) {
@@ -247,7 +260,7 @@ export default function DiagramEditor() {
         // Create edge
         const newEdge: DiagramEdge = {
           id: uid(), fromId: connectFromId, toId: nodeId,
-          label: '', style: defaultEdgeStyle, arrow: defaultEdgeArrow,
+          label: '', style: defaultEdgeStyle, arrow: defaultEdgeArrow, strokeWidth: 1.5,
         }
         updateDiagram({ edges: [...diagram.edges, newEdge] })
         setSelectedEdgeId(newEdge.id)
@@ -393,13 +406,15 @@ export default function DiagramEditor() {
     if (!shape) return
     paletteDragRef.current = null
     const [cx, cy] = clientToCanvas(e.clientX, e.clientY)
+    const isNetwork = ['server','cloud','router','firewall','laptop','phone'].includes(shape)
     const newNode: DiagramNode = {
       id: uid(),
       x: snap(cx - DEFAULT_NODE_W / 2), y: snap(cy - DEFAULT_NODE_H / 2),
-      w: DEFAULT_NODE_W, h: DEFAULT_NODE_H,
+      w: DEFAULT_NODE_W, h: isNetwork ? 80 : DEFAULT_NODE_H,
       shape, label: PALETTE_SHAPES.find(p => p.shape === shape)?.label ?? shape,
       color: COLOR_PRESETS[diagram.nodes.length % COLOR_PRESETS.length],
-      textColor: '#ffffff',
+      textColor: darkMode ? '#e5e7eb' : '#1f2937',
+      strokeWidth: 1.5,
     }
     updateDiagram({ nodes: [...diagram.nodes, newNode] })
     setSelectedNodeIds(new Set([newNode.id]))
@@ -482,7 +497,7 @@ export default function DiagramEditor() {
 
   // ── Diagram management ──
   const newDiagram = () => {
-    const d: Diagram = { id: uid(), name: 'Untitled Diagram', nodes: [], edges: [] }
+    const d: Diagram = { id: uid(), name: 'Untitled Diagram', nodes: [], edges: [], transparentBg: false }
     const next = [...diagrams, d]
     setDiagrams(next); saveDiagrams(next)
     setActiveDiagramId(d.id)
@@ -685,7 +700,13 @@ export default function DiagramEditor() {
         <div
           ref={containerRef}
           className="flex-1 overflow-hidden relative"
-          style={{ background: colors.bg, cursor: connectMode ? 'crosshair' : 'default' }}
+          style={{
+            background: diagram.transparentBg
+              ? (darkMode ? 'repeating-conic-gradient(#1a1a1a 0% 25%, #222 0% 50%) 0 0 / 16px 16px'
+                         : 'repeating-conic-gradient(#d1d5db 0% 25%, #fff 0% 50%) 0 0 / 16px 16px')
+              : colors.bg,
+            cursor: connectMode ? 'crosshair' : 'default',
+          }}
         >
           <svg
             ref={svgRef}
@@ -713,7 +734,7 @@ export default function DiagramEditor() {
               </marker>
             </defs>
 
-            <rect width="100%" height="100%" fill="url(#dg-grid)" />
+            {!diagram.transparentBg && <rect width="100%" height="100%" fill="url(#dg-grid)" />}
 
             <g data-viewport transform={transform}>
               {/* Edges */}
@@ -732,7 +753,7 @@ export default function DiagramEditor() {
                     <path d={d} fill="none" stroke="transparent" strokeWidth={14}
                       onClick={e => { e.stopPropagation(); setSelectedEdgeId(edge.id); setSelectedNodeIds(new Set()) }} />
                     <path d={d} fill="none" stroke={stroke}
-                      strokeWidth={isSel ? 2.5 : 1.5}
+                      strokeWidth={isSel ? (edge.strokeWidth ?? 1.5) + 1 : (edge.strokeWidth ?? 1.5)}
                       strokeDasharray={edge.style === 'dashed' ? '6 4' : edge.style === 'dotted' ? '2 4' : undefined}
                       markerEnd={edge.arrow !== 'none' ? `url(#dg-arrow${isSel ? '-sel' : ''})` : undefined}
                       markerStart={edge.arrow === 'both' ? 'url(#dg-arrow-both)' : undefined}
@@ -755,6 +776,10 @@ export default function DiagramEditor() {
                 const isConnSrc = connectMode && connectFromId === node.id
                 const isConnTarget = connectMode && connectFromId !== null && connectFromId !== node.id
                 const icon = networkIcon(node.shape)
+                const isNetwork = isNetworkShape(node.shape)
+                const cx = node.x + node.w / 2
+                const cy = node.y + node.h / 2
+                const sw = node.strokeWidth ?? 1.5
                 return (
                   <g
                     key={node.id}
@@ -762,66 +787,112 @@ export default function DiagramEditor() {
                     onMouseDown={e => handleNodeMouseDown(e, node.id)}
                     onDoubleClick={e => handleNodeDblClick(e, node.id)}
                   >
-                    {/* Drop shadow */}
-                    <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.12)"
-                      transform="translate(2,3)" style={{ pointerEvents: 'none' }} />
-                    {/* Shape fill */}
-                    <path d={nodeShapePath(node)} fill={node.color}
-                      stroke={isConnSrc ? '#22d3ee' : isSel ? colors.nodeStrokeSel : colors.nodeStroke}
-                      strokeWidth={isConnSrc ? 3 : isSel ? 2.5 : 1.5}
-                      strokeDasharray={isConnSrc ? '5 3' : undefined}
-                    />
-                    {/* Connect target highlight ring */}
-                    {isConnTarget && (
-                      <path d={nodeShapePath(node)} fill="none"
-                        stroke="#22d3ee" strokeWidth={2.5} opacity={0.7}
-                        style={{ pointerEvents: 'none' }} />
-                    )}
-                    {/* Network icon */}
-                    {icon && (
-                      <text
-                        x={node.x + node.w / 2} y={node.y + node.h / 2 - 8}
-                        textAnchor="middle" dominantBaseline="middle"
-                        fontSize={20} style={{ pointerEvents: 'none', userSelect: 'none' }}
-                      >{icon}</text>
-                    )}
-                    {/* Inline label editor */}
-                    {editingLabel?.type === 'node' && editingLabel.id === node.id ? (
-                      <foreignObject x={node.x + 4} y={node.y + node.h / 2 - 12} width={node.w - 8} height={24}>
-                        <input
-                          // @ts-ignore
-                          xmlns="http://www.w3.org/1999/xhtml"
-                          autoFocus
-                          value={editingLabel.value}
-                          onChange={e => setEditingLabel(s => s ? { ...s, value: e.target.value } : s)}
-                          onBlur={commitLabel}
-                          onKeyDown={e => { if (e.key === 'Enter') commitLabel(); if (e.key === 'Escape') setEditingLabel(null) }}
-                          style={{
-                            width: '100%', background: 'transparent', border: 'none', outline: 'none',
-                            textAlign: 'center', fontSize: 12, color: node.textColor, fontFamily: 'inherit',
-                          }}
-                        />
-                      </foreignObject>
+                    {isNetwork ? (
+                      /* ── Standalone network device — icon + label, no box ── */
+                      <>
+                        {/* Invisible hit area */}
+                        <rect x={node.x} y={node.y} width={node.w} height={node.h}
+                          fill="transparent" stroke="none" />
+                        {/* Selection/connect ring */}
+                        {(isSel || isConnSrc) && (
+                          <circle cx={cx} cy={cy - 10} r={32}
+                            fill="none"
+                            stroke={isConnSrc ? '#22d3ee' : colors.nodeStrokeSel}
+                            strokeWidth={isConnSrc ? 2.5 : 2}
+                            strokeDasharray={isConnSrc ? '5 3' : undefined}
+                            style={{ pointerEvents: 'none' }} />
+                        )}
+                        {isConnTarget && (
+                          <circle cx={cx} cy={cy - 10} r={32}
+                            fill="none" stroke="#22d3ee" strokeWidth={2} opacity={0.6}
+                            style={{ pointerEvents: 'none' }} />
+                        )}
+                        {/* Icon */}
+                        <text x={cx} y={cy - 4}
+                          textAnchor="middle" dominantBaseline="middle"
+                          fontSize={36} style={{ pointerEvents: 'none', userSelect: 'none' }}
+                        >{icon}</text>
+                        {/* Label */}
+                        {editingLabel?.type === 'node' && editingLabel.id === node.id ? (
+                          <foreignObject x={node.x} y={node.y + node.h - 22} width={node.w} height={22}>
+                            <input
+                              // @ts-ignore
+                              xmlns="http://www.w3.org/1999/xhtml"
+                              autoFocus
+                              value={editingLabel.value}
+                              onChange={e => setEditingLabel(s => s ? { ...s, value: e.target.value } : s)}
+                              onBlur={commitLabel}
+                              onKeyDown={e => { if (e.key === 'Enter') commitLabel(); if (e.key === 'Escape') setEditingLabel(null) }}
+                              style={{
+                                width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                                textAlign: 'center', fontSize: 11, color: node.textColor, fontFamily: 'inherit',
+                              }}
+                            />
+                          </foreignObject>
+                        ) : (
+                          <text x={cx} y={node.y + node.h - 6}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fontSize={11} fontWeight="500" fill={node.textColor}
+                            style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                            {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
+                          </text>
+                        )}
+                      </>
                     ) : (
-                      <text
-                        x={node.x + node.w / 2}
-                        y={icon ? node.y + node.h - 12 : node.y + node.h / 2}
-                        textAnchor="middle" dominantBaseline="middle"
-                        fontSize={11} fontWeight="500" fill={node.textColor}
-                        style={{ pointerEvents: 'none', userSelect: 'none' }}
-                      >
-                        {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
-                      </text>
+                      /* ── Flow / standard shape ── */
+                      <>
+                        {/* Drop shadow */}
+                        <path d={nodeShapePath(node)} fill="rgba(0,0,0,0.12)"
+                          transform="translate(2,3)" style={{ pointerEvents: 'none' }} />
+                        {/* Shape fill */}
+                        <path d={nodeShapePath(node)} fill={node.color}
+                          stroke={isConnSrc ? '#22d3ee' : isSel ? colors.nodeStrokeSel : colors.nodeStroke}
+                          strokeWidth={isConnSrc ? sw + 1.5 : isSel ? sw + 1 : sw}
+                          strokeDasharray={isConnSrc ? '5 3' : undefined}
+                        />
+                        {/* Connect target ring */}
+                        {isConnTarget && (
+                          <path d={nodeShapePath(node)} fill="none"
+                            stroke="#22d3ee" strokeWidth={2.5} opacity={0.7}
+                            style={{ pointerEvents: 'none' }} />
+                        )}
+                        {/* Inline label editor */}
+                        {editingLabel?.type === 'node' && editingLabel.id === node.id ? (
+                          <foreignObject x={node.x + 4} y={cy - 12} width={node.w - 8} height={24}>
+                            <input
+                              // @ts-ignore
+                              xmlns="http://www.w3.org/1999/xhtml"
+                              autoFocus
+                              value={editingLabel.value}
+                              onChange={e => setEditingLabel(s => s ? { ...s, value: e.target.value } : s)}
+                              onBlur={commitLabel}
+                              onKeyDown={e => { if (e.key === 'Enter') commitLabel(); if (e.key === 'Escape') setEditingLabel(null) }}
+                              style={{
+                                width: '100%', background: 'transparent', border: 'none', outline: 'none',
+                                textAlign: 'center', fontSize: 12, color: node.textColor, fontFamily: 'inherit',
+                              }}
+                            />
+                          </foreignObject>
+                        ) : (
+                          <text x={cx} y={cy}
+                            textAnchor="middle" dominantBaseline="middle"
+                            fontSize={11} fontWeight="500" fill={node.textColor}
+                            style={{ pointerEvents: 'none', userSelect: 'none' }}
+                          >
+                            {node.label.length > 18 ? node.label.slice(0, 17) + '…' : node.label}
+                          </text>
+                        )}
+                        {/* Selection corner handles */}
+                        {isSel && [
+                          [node.x, node.y], [node.x + node.w, node.y],
+                          [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
+                        ].map(([hx, hy], i) => (
+                          <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
+                            rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
+                            style={{ pointerEvents: 'none' }} />
+                        ))}
+                      </>
                     )}
-                    {/* Selection corner handles */}
-                    {isSel && [
-                      [node.x, node.y], [node.x + node.w, node.y],
-                      [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
-                    ].map(([hx, hy], i) => (
-                      <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
-                        rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
-                        style={{ pointerEvents: 'none' }} />
-                    ))}
                   </g>
                 )
               })}
@@ -934,6 +1005,16 @@ export default function DiagramEditor() {
                         className={inputCls} />
                     </div>
                   </div>
+                  <div>
+                    <label className={labelCls}>Border thickness</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={0.5} max={8} step={0.5}
+                        value={selectedNode.strokeWidth ?? 1.5}
+                        onChange={e => updateSelectedNodes({ strokeWidth: Number(e.target.value) })}
+                        className="flex-1 accent-accent-500" />
+                      <span className="w-6 text-right text-gray-500">{selectedNode.strokeWidth ?? 1.5}</span>
+                    </div>
+                  </div>
                   <button
                     onClick={() => {
                       const id = selectedNode.id
@@ -977,6 +1058,16 @@ export default function DiagramEditor() {
                       <option value="none">— None</option>
                     </select>
                   </div>
+                  <div>
+                    <label className={labelCls}>Line thickness</label>
+                    <div className="flex items-center gap-2">
+                      <input type="range" min={0.5} max={8} step={0.5}
+                        value={selectedEdge.strokeWidth ?? 1.5}
+                        onChange={e => updateSelectedEdge({ strokeWidth: Number(e.target.value) })}
+                        className="flex-1 accent-accent-500" />
+                      <span className="w-6 text-right text-gray-500">{selectedEdge.strokeWidth ?? 1.5}</span>
+                    </div>
+                  </div>
                   <button
                     onClick={() => { updateDiagram({ edges: diagram.edges.filter(e => e.id !== selectedEdgeId) }); setSelectedEdgeId(null) }}
                     className="w-full px-2 py-1 text-xs bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded border border-red-200 dark:border-red-800 hover:bg-red-100"
@@ -991,9 +1082,18 @@ export default function DiagramEditor() {
               </div>
             )}
 
-            {/* Canvas info */}
+            {/* Canvas settings */}
             <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
               <p className={sectionCls}>Canvas</p>
+              <label className="flex items-center gap-2 cursor-pointer mb-2">
+                <input
+                  type="checkbox"
+                  checked={diagram.transparentBg ?? false}
+                  onChange={e => updateDiagram({ transparentBg: e.target.checked })}
+                  className="accent-accent-500"
+                />
+                <span className="text-gray-600 dark:text-gray-300">Transparent background</span>
+              </label>
               <p className="text-gray-400 mb-1">{diagram.nodes.length} nodes · {diagram.edges.length} edges</p>
               <button
                 onClick={() => {
