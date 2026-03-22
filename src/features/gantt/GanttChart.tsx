@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef, useCallback } from 'react'
+import React, { useMemo, useState, useRef, useCallback, useImperativeHandle, forwardRef } from 'react'
 import type { GanttTask } from '../../types/gantt'
 import { useUiStore } from '../../stores/uiStore'
 
@@ -8,6 +8,10 @@ interface Props {
   onEditTask?: (task: GanttTask) => void
   onDragTask?: (task: GanttTask, newStart: string, newEnd: string) => void
   projectColors?: Map<string, string>
+}
+
+export interface GanttChartHandle {
+  getSvgElement: () => SVGSVGElement | null
 }
 
 const ROW_H = 44
@@ -118,7 +122,10 @@ function xToDate(x: number, chartStart: Date, viewMode: string, cw: number): Dat
   return new Date(base.getFullYear(), base.getMonth(), Math.max(1, Math.min(day, daysInMonth)))
 }
 
-export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, onDragTask, projectColors }: Props) {
+const GanttChart = forwardRef<GanttChartHandle, Props>(function GanttChart(
+  { tasks, viewMode = 'Week', onEditTask, onDragTask, projectColors }: Props,
+  ref
+) {
   const { darkMode } = useUiStore()
   const [hoveredId, setHoveredId] = useState<string | null>(null)
 
@@ -132,6 +139,10 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, onDra
   } | null>(null)
   const [dragging, setDragging] = useState<{ taskId: string; deltaX: number } | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
+
+  useImperativeHandle(ref, () => ({
+    getSvgElement: () => svgRef.current,
+  }))
 
   const colors = useMemo(() => ({
     bg: darkMode ? '#141414' : '#ffffff',
@@ -553,4 +564,6 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, onDra
       </svg>
     </div>
   )
-}
+})
+
+export default GanttChart

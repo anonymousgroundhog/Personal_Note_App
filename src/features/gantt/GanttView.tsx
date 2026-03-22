@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useCallback } from 'react'
-import { Plus, BarChart2, List, Layers, X, Save, ExternalLink } from 'lucide-react'
+import React, { useState, useMemo, useCallback, useRef } from 'react'
+import { Plus, BarChart2, List, Layers, X, Save, ExternalLink, Download, FileImage } from 'lucide-react'
 import GanttChart from './GanttChart'
+import type { GanttChartHandle } from './GanttChart'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
 import { parseGanttTasks } from './ganttParser'
@@ -37,6 +38,9 @@ export default function GanttView() {
     end: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10), progress: 0,
   })
 
+  const allChartRef = useRef<GanttChartHandle>(null)
+  const singleChartRef = useRef<GanttChartHandle>(null)
+
   const projects = useMemo(() => parseGanttTasks(index), [index])
 
   // Assign a distinct color to each project
@@ -65,6 +69,75 @@ export default function GanttView() {
     if (!selectedProject) return projects[0]?.tasks || []
     return projects.find(p => p.id === selectedProject)?.tasks || []
   }, [projects, selectedProject])
+
+  const getActiveSvg = () => {
+    const handle = tab === 'all' ? allChartRef.current : singleChartRef.current
+    return handle?.getSvgElement() ?? null
+  }
+
+  const exportSvg = () => {
+    const svgEl = getActiveSvg()
+    if (!svgEl) return
+    const clone = svgEl.cloneNode(true) as SVGSVGElement
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    const serializer = new XMLSerializer()
+    const svgStr = serializer.serializeToString(clone)
+    const blob = new Blob([svgStr], { type: 'image/svg+xml' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `gantt-${tab === 'all' ? 'all-projects' : (projects.find(p => p.id === selectedProject)?.name ?? 'project').replace(/\s+/g, '-').toLowerCase()}.svg`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportPdf = () => {
+    const svgEl = getActiveSvg()
+    if (!svgEl) return
+    const clone = svgEl.cloneNode(true) as SVGSVGElement
+    clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+    const w = Number(clone.getAttribute('width') || 800)
+    const h = Number(clone.getAttribute('height') || 600)
+    const serializer = new XMLSerializer()
+    const svgStr = serializer.serializeToString(clone)
+    const svgDataUrl = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgStr)
+    const projectName = tab === 'all'
+      ? 'All Projects'
+      : (projects.find(p => p.id === selectedProject)?.name ?? 'Project')
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Gantt – ${projectName}</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#fff; }
+  .header { font-family: sans-serif; font-size:13px; color:#555; padding:12px 16px 8px; border-bottom:1px solid #e5e7eb; }
+  .header h1 { font-size:16px; font-weight:600; color:#111; margin-bottom:2px; }
+  img { display:block; width:${w}px; max-width:100%; }
+  @media print {
+    @page { size: ${w + 64}px ${h + 100}px landscape; margin:8mm; }
+    .header { padding:0 0 6px; }
+  }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Gantt Chart – ${projectName}</h1>
+  <span>Exported ${new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })}</span>
+</div>
+<img src="${svgDataUrl}" width="${w}" height="${h}" />
+</body>
+</html>`
+    const win = window.open('', '_blank')
+    if (!win) return
+    win.document.write(html)
+    win.document.close()
+    win.addEventListener('load', () => {
+      win.focus()
+      win.print()
+    })
+  }
 
   const handleCreateTask = async () => {
     if (!newTask.title || !newTask.project) return
@@ -191,6 +264,22 @@ Task for project: ${newTask.project}
               <option>Quarter Year</option>
             </select>
             <button
+              onClick={exportSvg}
+              title="Export as SVG"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-sm"
+            >
+              <FileImage size={14} />
+              SVG
+            </button>
+            <button
+              onClick={exportPdf}
+              title="Export as PDF"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-sm"
+            >
+              <Download size={14} />
+              PDF
+            </button>
+            <button
               onClick={() => setShowNewTaskForm(v => !v)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 text-sm"
             >
@@ -278,7 +367,7 @@ Task for project: ${newTask.project}
                 {allTasks.length} tasks across {projects.length} projects
                 <span className="ml-2 opacity-60">— click a task bar to edit</span>
               </p>
-              <GanttChart tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
+              <GanttChart ref={allChartRef} tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
             </div>
           ) : (
             <div>
@@ -292,7 +381,7 @@ Task for project: ${newTask.project}
                 <span className="text-xs text-gray-500">{projectTasks.length} tasks</span>
                 <span className="text-xs text-gray-400 opacity-60">— click a task bar to edit</span>
               </div>
-              <GanttChart tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
+              <GanttChart ref={singleChartRef} tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
             </div>
           )}
         </div>
