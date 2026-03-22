@@ -20,6 +20,7 @@ interface EditState {
   status: string
   priority: string
   assignee: string
+  depends_on: string[]
 }
 
 export default function GanttView() {
@@ -99,6 +100,10 @@ Task for project: ${newTask.project}
   const handleEditTask = (task: GanttTask) => {
     const note = index.get(task.notePath || '')
     const fm = note?.frontmatter || {}
+    const depsRaw = fm.depends_on
+    const deps: string[] = Array.isArray(depsRaw)
+      ? depsRaw.map(String)
+      : depsRaw ? String(depsRaw).split(',').map(s => s.trim()).filter(Boolean) : []
     setEditState({
       task,
       title: String(fm.title || task.name),
@@ -108,8 +113,25 @@ Task for project: ${newTask.project}
       status: String(fm.status || 'not-started'),
       priority: String(fm.priority || 'medium'),
       assignee: String(fm.assignee || ''),
+      depends_on: deps,
     })
   }
+
+  const handleDragTask = useCallback(async (task: GanttTask, newStart: string, newEnd: string) => {
+    if (!task.notePath) return
+    try {
+      const raw = await readNote(task.notePath)
+      const { frontmatter, body } = parseFrontmatter(raw)
+      const updated = { ...frontmatter, start: newStart, end: newEnd }
+      const yamlLines = Object.entries(updated).map(([k, v]) => {
+        if (Array.isArray(v)) return `${k}:\n${v.map(i => `  - ${i}`).join('\n')}`
+        if (typeof v === 'string' && (v.includes(':') || v.includes('"')))
+          return `${k}: "${v.replace(/"/g, '\\"')}"`
+        return `${k}: ${v}`
+      })
+      await saveNote(task.notePath, `---\n${yamlLines.join('\n')}\n---\n\n${body}`)
+    } catch { /* ignore */ }
+  }, [readNote, saveNote])
 
   const handleSaveEdit = async () => {
     if (!editState?.task.notePath) return
@@ -127,6 +149,7 @@ Task for project: ${newTask.project}
         status: editState.status,
         priority: editState.priority,
         assignee: editState.assignee,
+        depends_on: editState.depends_on.length > 0 ? editState.depends_on : undefined,
       }
 
       // Rebuild frontmatter YAML
@@ -255,7 +278,7 @@ Task for project: ${newTask.project}
                 {allTasks.length} tasks across {projects.length} projects
                 <span className="ml-2 opacity-60">— click a task bar to edit</span>
               </p>
-              <GanttChart tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} projectColors={projectColors} />
+              <GanttChart tasks={allTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
             </div>
           ) : (
             <div>
@@ -269,7 +292,7 @@ Task for project: ${newTask.project}
                 <span className="text-xs text-gray-500">{projectTasks.length} tasks</span>
                 <span className="text-xs text-gray-400 opacity-60">— click a task bar to edit</span>
               </div>
-              <GanttChart tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} projectColors={projectColors} />
+              <GanttChart tasks={projectTasks} viewMode={viewMode} onEditTask={handleEditTask} onDragTask={handleDragTask} projectColors={projectColors} />
             </div>
           )}
         </div>
@@ -357,6 +380,47 @@ Task for project: ${newTask.project}
               <input value={editState.assignee} placeholder="e.g. Sean"
                 onChange={e => setEditState(s => s ? { ...s, assignee: e.target.value } : s)}
                 className={inputCls} />
+            </div>
+
+            {/* Dependencies */}
+            <div>
+              <label className={labelCls}>Blocked by (depends on)</label>
+              <p className="text-xs text-gray-400 mb-2">
+                This task cannot start until the selected tasks are complete.
+              </p>
+              <div className="space-y-1 max-h-32 overflow-y-auto">
+                {allTasks
+                  .filter(t => t.id !== editState.task.id)
+                  .map(t => {
+                    const checked = editState.depends_on.includes(t.id)
+                    return (
+                      <label key={t.id} className="flex items-center gap-2 cursor-pointer group">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e => {
+                            setEditState(s => {
+                              if (!s) return s
+                              const deps = e.target.checked
+                                ? [...s.depends_on, t.id]
+                                : s.depends_on.filter(d => d !== t.id)
+                              return { ...s, depends_on: deps }
+                            })
+                          }}
+                          className="accent-accent-500"
+                        />
+                        <span className={`text-xs truncate ${checked ? 'text-accent-500 font-medium' : 'text-gray-600 dark:text-gray-400'}`}>
+                          {t.name}
+                        </span>
+                      </label>
+                    )
+                  })}
+              </div>
+              {editState.depends_on.length > 0 && (
+                <p className="text-xs text-amber-500 mt-1 font-medium">
+                  ⏳ Blocked by {editState.depends_on.length} task{editState.depends_on.length > 1 ? 's' : ''}
+                </p>
+              )}
             </div>
 
             {/* Project badge */}

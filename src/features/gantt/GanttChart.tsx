@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, useRef, useCallback } from 'react'
 import type { GanttTask } from '../../types/gantt'
 import { useUiStore } from '../../stores/uiStore'
 
@@ -6,6 +6,7 @@ interface Props {
   tasks: GanttTask[]
   viewMode?: 'Day' | 'Week' | 'Month' | 'Quarter Year'
   onEditTask?: (task: GanttTask) => void
+  onDragTask?: (task: GanttTask, newStart: string, newEnd: string) => void
   projectColors?: Map<string, string>
 }
 
@@ -39,6 +40,10 @@ function fmtDateShort(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
 }
 
+function fmtIso(d: Date): string {
+  return d.toISOString().slice(0, 10)
+}
+
 function getColumnDates(start: Date, end: Date, viewMode: string): Date[] {
   const cols: Date[] = []
   let cur = new Date(start)
@@ -50,7 +55,6 @@ function getColumnDates(start: Date, end: Date, viewMode: string): Date[] {
       cur = addDays(cur, 1)
     }
   } else if (viewMode === 'Week') {
-    // Start on Monday of the week containing `start`
     const day = cur.getDay()
     cur = addDays(cur, -(day === 0 ? 6 : day - 1))
     while (cur <= end) {
@@ -65,7 +69,6 @@ function getColumnDates(start: Date, end: Date, viewMode: string): Date[] {
       cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)
     }
   } else {
-    // Quarter Year — one column per month
     cur = new Date(cur.getFullYear(), cur.getMonth(), 1)
     const endMonth = new Date(end.getFullYear(), end.getMonth(), 1)
     while (cur <= endMonth) {
@@ -90,24 +93,45 @@ function dateToX(date: Date, chartStart: Date, viewMode: string, cw: number): nu
   if (viewMode === 'Week') {
     return (diffDays(chartStart, date) / 7) * cw
   }
-  // Month / Quarter
   const months = (date.getFullYear() - chartStart.getFullYear()) * 12 + (date.getMonth() - chartStart.getMonth())
   const frac = date.getDate() / new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
   return (months + frac) * cw
 }
 
-function colLabel(d: Date, viewMode: string): string {
-  if (viewMode === 'Day') return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  if (viewMode === 'Week') {
-    const end = addDays(d, 6)
-    return `${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+// Convert chart-relative x pixel back to a Date
+function xToDate(x: number, chartStart: Date, viewMode: string, cw: number): Date {
+  if (viewMode === 'Day') {
+    const days = Math.round(x / cw)
+    return addDays(chartStart, days)
   }
-  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+  if (viewMode === 'Week') {
+    const days = Math.round((x / cw) * 7)
+    return addDays(chartStart, days)
+  }
+  // Month / Quarter — approximate via fractional months
+  const totalMonths = x / cw
+  const wholeMonths = Math.floor(totalMonths)
+  const fracMonth = totalMonths - wholeMonths
+  const base = new Date(chartStart.getFullYear(), chartStart.getMonth() + wholeMonths, 1)
+  const daysInMonth = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate()
+  const day = Math.round(fracMonth * daysInMonth) + 1
+  return new Date(base.getFullYear(), base.getMonth(), Math.max(1, Math.min(day, daysInMonth)))
 }
 
-export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, projectColors }: Props) {
+export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, onDragTask, projectColors }: Props) {
   const { darkMode } = useUiStore()
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+
+  // Drag state
+  const dragRef = useRef<{
+    taskId: string
+    startX: number       // mousedown clientX
+    origBarX: number     // bar's original left pixel
+    durationDays: number // original duration in days
+    svgLeft: number      // SVG container left offset
+  } | null>(null)
+  const [dragging, setDragging] = useState<{ taskId: string; deltaX: number } | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
 
   const colors = useMemo(() => ({
     bg: darkMode ? '#141414' : '#ffffff',
@@ -123,6 +147,9 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
     today: darkMode ? 'rgba(139,92,246,0.18)' : 'rgba(139,92,246,0.10)',
     todayLine: '#8b5cf6',
     dateLabel: darkMode ? '#e5e7eb' : '#374151',
+    depArrow: darkMode ? '#f59e0b' : '#d97706',
+    depBlocked: darkMode ? '#ef4444' : '#dc2626',
+    depArrowBlocking: darkMode ? '#fbbf24' : '#f59e0b',
   }), [darkMode])
 
   const { chartStart, chartEnd, colDates, cw, totalW, svgH } = useMemo(() => {
@@ -136,14 +163,12 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
       if (e > maxDate) maxDate = e
     })
 
-    // Pad 1 column on each side
     const cw = colWidth(viewMode)
     const padDays = viewMode === 'Day' ? 2 : viewMode === 'Week' ? 14 : 30
     const padStart = addDays(minDate, -padDays)
     const padEnd = addDays(maxDate, padDays)
 
     const cols = getColumnDates(padStart, padEnd, viewMode)
-    // chartStart is the first column date
     const cs = cols[0] ?? padStart
     const ce = cols[cols.length - 1] ?? padEnd
 
@@ -158,6 +183,82 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
   }, [tasks, viewMode])
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d }, [])
+
+  // Build a map of task id -> row index for dependency arrow routing
+  const taskRowMap = useMemo(() => {
+    const m = new Map<string, number>()
+    tasks.forEach((t, i) => m.set(t.id, i))
+    return m
+  }, [tasks])
+
+  // Compute dependency edges: { fromId (blocker), toId (blocked), fromRow, toRow }
+  const depEdges = useMemo(() => {
+    const edges: { fromId: string; toId: string; fromRow: number; toRow: number }[] = []
+    tasks.forEach(task => {
+      if (!task.dependencies) return
+      const deps = task.dependencies.split(',').map(s => s.trim()).filter(Boolean)
+      deps.forEach(depId => {
+        const fromRow = taskRowMap.get(depId)
+        const toRow = taskRowMap.get(task.id)
+        if (fromRow !== undefined && toRow !== undefined) {
+          edges.push({ fromId: depId, toId: task.id, fromRow, toRow })
+        }
+      })
+    })
+    return edges
+  }, [tasks, taskRowMap])
+
+  // IDs that are blocking something (have a task waiting on them)
+  const blockingIds = useMemo(() => new Set(depEdges.map(e => e.fromId)), [depEdges])
+  // IDs that are blocked by something
+  const blockedIds = useMemo(() => new Set(depEdges.map(e => e.toId)), [depEdges])
+
+  // Drag handlers
+  const handleBarMouseDown = useCallback((e: React.MouseEvent, task: GanttTask, barX: number) => {
+    if (!onDragTask) return
+    e.preventDefault()
+    e.stopPropagation()
+    const svgRect = svgRef.current?.getBoundingClientRect()
+    const taskStart = parseDate(task.start)
+    const taskEnd = parseDate(task.end)
+    dragRef.current = {
+      taskId: task.id,
+      startX: e.clientX,
+      origBarX: barX,
+      durationDays: diffDays(taskStart, taskEnd),
+      svgLeft: svgRect?.left ?? 0,
+    }
+    setDragging({ taskId: task.id, deltaX: 0 })
+  }, [onDragTask])
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragRef.current) return
+    const deltaX = e.clientX - dragRef.current.startX
+    setDragging({ taskId: dragRef.current.taskId, deltaX })
+  }, [])
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    if (!dragRef.current || !onDragTask) { dragRef.current = null; setDragging(null); return }
+    const deltaX = e.clientX - dragRef.current.startX
+    const { taskId, origBarX, durationDays } = dragRef.current
+    const newBarX = origBarX + deltaX - LABEL_W  // relative to chart area
+    const newStart = xToDate(newBarX, chartStart, viewMode, cw)
+    newStart.setHours(0, 0, 0, 0)
+    const newEnd = addDays(newStart, durationDays)
+    const task = tasks.find(t => t.id === taskId)
+    if (task && Math.abs(deltaX) > 4) {
+      onDragTask(task, fmtIso(newStart), fmtIso(newEnd))
+    }
+    dragRef.current = null
+    setDragging(null)
+  }, [onDragTask, tasks, chartStart, viewMode, cw])
+
+  const handleMouseLeave = useCallback(() => {
+    if (dragRef.current) {
+      dragRef.current = null
+      setDragging(null)
+    }
+  }, [])
 
   if (tasks.length === 0) {
     return (
@@ -174,10 +275,24 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
   return (
     <div className="w-full overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
       <svg
+        ref={svgRef}
         width={LABEL_W + totalW}
         height={svgH}
-        style={{ display: 'block', minWidth: LABEL_W + totalW, fontFamily: 'inherit' }}
+        style={{ display: 'block', minWidth: LABEL_W + totalW, fontFamily: 'inherit', userSelect: 'none' }}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseLeave}
       >
+        {/* ── defs: arrowhead markers ── */}
+        <defs>
+          <marker id="arrow-dep" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <polygon points="0 0, 7 3.5, 0 7" fill={colors.depArrow} />
+          </marker>
+          <marker id="arrow-blocked" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <polygon points="0 0, 7 3.5, 0 7" fill={colors.depBlocked} />
+          </marker>
+        </defs>
+
         {/* ── Background ── */}
         <rect x={0} y={0} width={LABEL_W + totalW} height={svgH} fill={colors.bg} />
 
@@ -192,11 +307,8 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
                 width={cw} height={tasks.length * ROW_H}
                 fill={isToday ? colors.today : 'transparent'}
               />
-              {/* vertical grid line */}
               <line x1={x} y1={0} x2={x} y2={svgH} stroke={colors.border} strokeWidth={0.5} />
-              {/* header cell bg */}
               <rect x={x} y={0} width={cw} height={HEADER_H} fill={colors.headerBg} />
-              {/* header label — two lines: month on top, date range below */}
               {viewMode === 'Week' ? (
                 <>
                   <text x={x + cw / 2} y={18} textAnchor="middle" fontSize={10} fill={colors.headerText} fontWeight="600">
@@ -234,7 +346,6 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
           )
         })}
 
-        {/* Trailing border for header label area */}
         <rect x={0} y={0} width={LABEL_W} height={HEADER_H} fill={colors.headerBg} />
         <line x1={LABEL_W} y1={0} x2={LABEL_W} y2={svgH} stroke={colors.border} strokeWidth={1} />
         <line x1={0} y1={HEADER_H} x2={LABEL_W + totalW} y2={HEADER_H} stroke={colors.border} strokeWidth={1} />
@@ -242,26 +353,36 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
         {/* ── Rows ── */}
         {tasks.map((task, i) => {
           const y = HEADER_H + i * ROW_H
+          const isDraggingThis = dragging?.taskId === task.id
           const isHovered = hoveredId === task.id
+          const isBlocked = blockedIds.has(task.id)
+          const isBlocking = blockingIds.has(task.id)
+
           const taskStart = parseDate(task.start)
           const taskEnd = parseDate(task.end)
           const duration = Math.max(1, diffDays(taskStart, taskEnd))
-          const barX = LABEL_W + dateToX(taskStart, chartStart, viewMode, cw)
-          const barW = Math.max(4, dateToX(taskEnd, chartStart, viewMode, cw) - dateToX(taskStart, chartStart, viewMode, cw))
+
+          // Apply drag delta
+          let barX = LABEL_W + dateToX(taskStart, chartStart, viewMode, cw)
+          let barW = Math.max(4, dateToX(taskEnd, chartStart, viewMode, cw) - dateToX(taskStart, chartStart, viewMode, cw))
+          if (isDraggingThis && dragging) {
+            barX += dragging.deltaX
+          }
+
           const progW = barW * Math.min(100, Math.max(0, task.progress ?? 0)) / 100
           const projectKey = task.project ?? task.name.match(/^\[(.+?)\]/)?.[1] ?? ''
           const projectColor = projectColors?.get(projectKey)
-          const barFill = isHovered
-            ? (projectColor ? projectColor + 'cc' : colors.barHover)
-            : (projectColor ?? colors.barBg)
+          const barFill = isDraggingThis
+            ? (projectColor ? projectColor + 'bb' : colors.barHover)
+            : isHovered
+              ? (projectColor ? projectColor + 'cc' : colors.barHover)
+              : (projectColor ?? colors.barBg)
           const progFill = projectColor ? projectColor + '88' : colors.barProg
 
           return (
             <g key={task.id}
-              onMouseEnter={() => setHoveredId(task.id)}
+              onMouseEnter={() => !dragging && setHoveredId(task.id)}
               onMouseLeave={() => setHoveredId(null)}
-              style={{ cursor: onEditTask ? 'pointer' : 'default' }}
-              onClick={() => onEditTask?.(task)}
             >
               {/* Row bg */}
               <rect x={0} y={y} width={LABEL_W + totalW} height={ROW_H}
@@ -273,11 +394,27 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
               {projectColor && (
                 <circle cx={10} cy={y + ROW_H / 2 - 5} r={4} fill={projectColor} />
               )}
+              {/* Blocked indicator */}
+              {isBlocked && (
+                <text x={LABEL_W - 36} y={y + ROW_H / 2 - 4} fontSize={10} fill={colors.depBlocked}
+                  style={{ dominantBaseline: 'middle' }}>
+                  <title>Waiting on dependency</title>
+                  ⏳
+                </text>
+              )}
+              {/* Blocking indicator */}
+              {isBlocking && (
+                <text x={LABEL_W - 20} y={y + ROW_H / 2 - 4} fontSize={10} fill={colors.depArrowBlocking}
+                  style={{ dominantBaseline: 'middle' }}>
+                  <title>Blocking other tasks</title>
+                  🔒
+                </text>
+              )}
               <text x={projectColor ? 20 : 10} y={y + ROW_H / 2 - 5} fontSize={12} fill={colors.labelText} fontWeight="500"
                 style={{ dominantBaseline: 'middle' }}>
-                {task.name.length > 24 ? task.name.slice(0, 23) + '…' : task.name}
+                {task.name.length > 22 ? task.name.slice(0, 21) + '…' : task.name}
               </text>
-              <text x={10} y={y + ROW_H / 2 + 9} fontSize={10} fill={colors.labelSub}>
+              <text x={projectColor ? 20 : 10} y={y + ROW_H / 2 + 9} fontSize={10} fill={colors.labelSub}>
                 {fmtDate(taskStart)} → {fmtDate(taskEnd)}
                 {' '}({duration}d)
               </text>
@@ -286,14 +423,34 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
               <rect x={barX + 1} y={y + BAR_Y_OFFSET + 2} width={barW} height={BAR_H}
                 rx={4} fill="rgba(0,0,0,0.18)" />
               {/* Bar body */}
-              <rect x={barX} y={y + BAR_Y_OFFSET} width={barW} height={BAR_H}
-                rx={4} fill={barFill} />
+              <rect
+                x={barX} y={y + BAR_Y_OFFSET} width={barW} height={BAR_H}
+                rx={4} fill={barFill}
+                style={{ cursor: onDragTask ? (isDraggingThis ? 'grabbing' : 'grab') : (onEditTask ? 'pointer' : 'default') }}
+                onMouseDown={e => {
+                  if (onDragTask) {
+                    handleBarMouseDown(e, task, barX)
+                  }
+                }}
+                onClick={e => {
+                  // Only fire edit if not a drag
+                  if (!dragRef.current && Math.abs((dragging?.deltaX ?? 0)) <= 4) {
+                    onEditTask?.(task)
+                  }
+                }}
+              />
               {/* Progress fill */}
               {progW > 0 && (
                 <rect x={barX} y={y + BAR_Y_OFFSET} width={progW} height={BAR_H}
-                  rx={4} fill={progFill} />
+                  rx={4} fill={progFill} style={{ pointerEvents: 'none' }} />
               )}
-              {/* Bar label: start – end dates inside bar if wide enough */}
+              {/* Blocked/blocking border */}
+              {isBlocked && (
+                <rect x={barX} y={y + BAR_Y_OFFSET} width={barW} height={BAR_H}
+                  rx={4} fill="none" stroke={colors.depBlocked} strokeWidth={2} strokeDasharray="4 2"
+                  style={{ pointerEvents: 'none' }} />
+              )}
+              {/* Bar label */}
               {barW > 90 && (
                 <text
                   x={barX + barW / 2} y={y + BAR_Y_OFFSET + BAR_H / 2}
@@ -304,7 +461,7 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
                   {fmtDateShort(taskStart)} – {fmtDateShort(taskEnd)}
                 </text>
               )}
-              {/* Progress % badge */}
+              {/* Progress % */}
               {task.progress != null && task.progress > 0 && barW > 40 && (
                 <text
                   x={barX + Math.min(progW - 4, barW - 28)} y={y + BAR_Y_OFFSET + BAR_H / 2}
@@ -315,12 +472,68 @@ export default function GanttChart({ tasks, viewMode = 'Week', onEditTask, proje
                   {task.progress}%
                 </text>
               )}
-              {/* Edit pencil icon on hover */}
-              {isHovered && onEditTask && (
+              {/* Edit pencil on hover (when not draggable) */}
+              {isHovered && onEditTask && !onDragTask && (
                 <g transform={`translate(${LABEL_W - 22}, ${y + ROW_H / 2 - 7})`}>
                   <rect width={18} height={14} rx={3} fill={colors.barBg} />
                   <text x={9} y={7} textAnchor="middle" dominantBaseline="middle" fontSize={9} fill="#fff">✎</text>
                 </g>
+              )}
+              {/* Drag hint on hover */}
+              {isHovered && onDragTask && !isDraggingThis && (
+                <text x={barX + barW / 2} y={y + BAR_Y_OFFSET - 6}
+                  textAnchor="middle" fontSize={9} fill={colors.labelSub}
+                  style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                  drag to reschedule
+                </text>
+              )}
+            </g>
+          )
+        })}
+
+        {/* ── Dependency arrows ── */}
+        {depEdges.map((edge, idx) => {
+          const fromTask = tasks.find(t => t.id === edge.fromId)
+          const toTask = tasks.find(t => t.id === edge.toId)
+          if (!fromTask || !toTask) return null
+
+          const fromDrag = dragging?.taskId === edge.fromId ? dragging.deltaX : 0
+          const toDrag = dragging?.taskId === edge.toId ? dragging.deltaX : 0
+
+          const fromEnd = LABEL_W + dateToX(parseDate(fromTask.end), chartStart, viewMode, cw) + fromDrag
+          const toStart = LABEL_W + dateToX(parseDate(toTask.start), chartStart, viewMode, cw) + toDrag
+
+          const fromY = HEADER_H + edge.fromRow * ROW_H + ROW_H / 2
+          const toY = HEADER_H + edge.toRow * ROW_H + ROW_H / 2
+
+          // Is the dependency violated? (toTask starts before fromTask ends)
+          const isViolated = parseDate(toTask.start) < parseDate(fromTask.end)
+          const strokeColor = isViolated ? colors.depBlocked : colors.depArrow
+          const markerId = isViolated ? 'arrow-blocked' : 'arrow-dep'
+
+          // Route: right from fromTask end -> elbow down/up -> left to toTask start
+          const midX = fromEnd + 10
+
+          return (
+            <g key={idx} style={{ pointerEvents: 'none' }}>
+              <path
+                d={`M ${fromEnd} ${fromY} L ${midX} ${fromY} L ${midX} ${toY} L ${toStart - 4} ${toY}`}
+                fill="none"
+                stroke={strokeColor}
+                strokeWidth={1.5}
+                strokeDasharray={isViolated ? '4 2' : undefined}
+                markerEnd={`url(#${markerId})`}
+                opacity={0.8}
+              />
+              {/* Violation label */}
+              {isViolated && (
+                <text
+                  x={(fromEnd + toStart) / 2} y={Math.min(fromY, toY) - 4}
+                  textAnchor="middle" fontSize={9} fill={colors.depBlocked}
+                  fontWeight="600"
+                >
+                  ⚠ overlap
+                </text>
               )}
             </g>
           )
