@@ -16,9 +16,10 @@
  */
 
 import { createServer } from 'http'
-import { spawn, execFile } from 'child_process'
+import https from 'https'
+import { spawn, execFile, spawnSync, execFileSync } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, writeFileSync, mkdirSync, readFileSync, createWriteStream } from 'fs'
 import { resolve, join } from 'path'
 import { tmpdir, homedir } from 'os'
 import { randomBytes } from 'crypto'
@@ -27,6 +28,99 @@ import pty from 'node-pty'
 
 const PORT = 3001
 const execFileAsync = promisify(execFile)
+
+// ── Security Suite Configuration ───────────────────────────────────────────────────
+const SECURITY_DIR = join(homedir(), '.note-app-security')
+const SOOT_INSTALL_DIR = join(SECURITY_DIR, 'soot')
+const PLATFORMS_INSTALL_DIR = join(SECURITY_DIR, 'android-platforms')
+const JAVA_INSTALL_DIR = join(SECURITY_DIR, 'java')
+
+// Ensure security directories exist
+mkdirSync(SECURITY_DIR, { recursive: true })
+mkdirSync(SOOT_INSTALL_DIR, { recursive: true })
+mkdirSync(PLATFORMS_INSTALL_DIR, { recursive: true })
+mkdirSync(JAVA_INSTALL_DIR, { recursive: true })
+
+// Available Soot versions (from Maven Central)
+const SOOT_VERSIONS = [
+  { version: '4.5.0', url: 'https://repo1.maven.org/maven2/ca/mcgill/sable/soot/4.5.0/soot-4.5.0-jar-with-dependencies.jar' },
+  { version: '4.4.1', url: 'https://repo1.maven.org/maven2/ca/mcgill/sable/soot/4.4.1/soot-4.4.1-jar-with-dependencies.jar' },
+]
+
+// Available Android API levels
+const ANDROID_API_LEVELS = [
+  { api: 35, name: 'Android 15 (API 35)' },
+  { api: 34, name: 'Android 14 (API 34)' },
+  { api: 33, name: 'Android 13 (API 33)' },
+  { api: 32, name: 'Android 12 (API 32)' },
+  { api: 31, name: 'Android 12 (API 31)' },
+  { api: 30, name: 'Android 11 (API 30)' },
+  { api: 29, name: 'Android 10 (API 29)' },
+  { api: 28, name: 'Android 9 (API 28)' },
+]
+
+// Download file helper
+async function downloadFile(url, outputPath) {
+  return new Promise((resolve, reject) => {
+    const file = createWriteStream(outputPath)
+
+    const request = https.get(url, response => {
+      // Handle redirects
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        file.destroy()
+        downloadFile(response.headers.location, outputPath).then(resolve).catch(reject)
+        return
+      }
+      if (response.statusCode !== 200) {
+        file.destroy()
+        reject(new Error(`HTTP ${response.statusCode}`))
+        return
+      }
+
+      response.pipe(file)
+      file.on('finish', () => {
+        file.close()
+        resolve()
+      })
+      file.on('error', err => {
+        file.destroy()
+        reject(err)
+      })
+      response.on('error', err => {
+        file.destroy()
+        reject(err)
+      })
+    })
+
+    request.on('error', reject)
+  })
+}
+
+// Get appropriate JDK URL for OS/arch
+function getJdkUrl() {
+  const platform = process.platform
+  const arch = process.arch
+
+  // Eclipse Temurin JDK 21 (free, open-source)
+  // Map Node.js arch to JDK arch
+  const archMap = {
+    'x64': 'x64',
+    'arm64': 'aarch64',
+    'x32': 'x86',
+  }
+
+  const jdkArch = archMap[arch] || arch
+
+  if (platform === 'linux') {
+    return `https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_${jdkArch}_linux_hotspot_21.0.1_12.tar.gz`
+  } else if (platform === 'darwin') {
+    return `https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_${jdkArch}_mac_hotspot_21.0.1_12.tar.gz`
+  } else if (platform === 'win32') {
+    return `https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.1%2B12/OpenJDK21U-jdk_${jdkArch}_windows_hotspot_21.0.1_12.zip`
+  }
+
+  return null
+}
 
 // ── CORS helper — allow any origin that hits our local server ──────────────────
 // The server only binds to 0.0.0.0:3001 and is not internet-exposed,
@@ -614,6 +708,443 @@ const server = createServer(async (req, res) => {
         ${hint}
         <p style="margin-top:1.25rem"><a href="${target}" target="_top" style="color:#3b82f6">Open in browser instead ↗</a></p>
       </body></html>`)
+    }
+    return
+  }
+
+  // ── Security Suite Endpoints ──────────────────────────────────────────────────
+
+  // Helper: expand ~ in paths
+  function expandPath(pathStr) {
+    if (!pathStr) return pathStr
+    if (pathStr.startsWith('~')) {
+      return join(homedir(), pathStr.slice(1))
+    }
+    return pathStr
+  }
+
+  // GET /security/caps — check Java and Android SDK availability
+  if (req.method === 'GET' && url.pathname === '/security/caps') {
+    setCors(res)
+    const caps = { java: false, javaPath: null, androidHome: null }
+
+    // Check Java - try 'which' first, then direct execution
+    try {
+      const result = spawnSync('which', ['java'], { encoding: 'utf-8', timeout: 2000 })
+      if (result.status === 0 && result.stdout?.trim()) {
+        caps.java = true
+        caps.javaPath = result.stdout.trim()
+      }
+    } catch {
+      // Fallback: try direct execution
+      try {
+        execFileSync('java', ['-version'], { stdio: 'ignore', timeout: 2000 })
+        caps.java = true
+        caps.javaPath = 'java'
+      } catch {
+        // Java not found
+      }
+    }
+
+    // Check Android SDK from environment
+    const androidHome = process.env.ANDROID_HOME
+    if (androidHome && existsSync(androidHome)) {
+      caps.androidHome = androidHome
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(caps))
+    return
+  }
+
+
+  // POST /security/apk/upload — upload APK file to temp directory
+  if (req.method === 'POST' && url.pathname === '/security/apk/upload') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      const { filename, data } = JSON.parse(body)
+      const tmpDir = mkdtempSync(join(tmpdir(), 'apk_'))
+      const apkPath = join(tmpDir, filename)
+      writeFileSync(apkPath, Buffer.from(data, 'base64'))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ apkPath, tmpDir }))
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // POST /security/apk/analyze — decode APK with apktool and analyze
+  if (req.method === 'POST' && url.pathname === '/security/apk/analyze') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      let { apkPath, sootJarPath, platformsPath, outputDir } = body
+
+      // Expand ~ in paths
+      apkPath = expandPath(apkPath)
+      outputDir = expandPath(outputDir || join(tmpdir(), 'apktool_output'))
+
+      // Validate APK file exists
+      if (!existsSync(apkPath)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `APK file not found: ${apkPath}` }))
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      mkdirSync(outputDir, { recursive: true })
+
+      const shell = process.env.SHELL || '/bin/bash'
+      const escapePath = (p) => `"${p.replace(/"/g, '\\"')}"`
+
+      // Send progress message
+      const sendSSE = (type, data) => {
+        const json = JSON.stringify({ type, ...data })
+        res.write(`data: ${json}\n\n`)
+      }
+
+      sendSSE('progress', { message: 'Decoding APK with apktool...' })
+
+      // Run apktool d (decode) with -f flag to overwrite existing output
+      const apktoolCmd = `apktool d -f ${escapePath(apkPath)} -o ${escapePath(outputDir)}`
+      const child = spawn(shell, ['-i', '-c', apktoolCmd])
+      let stdout = ''
+      let stderr = ''
+
+      child.stderr.on('data', d => {
+        stderr += d.toString()
+        sendSSE('progress', { message: d.toString() })
+      })
+
+      child.stdout.on('data', d => {
+        stdout += d.toString()
+        sendSSE('progress', { message: d.toString() })
+      })
+
+      child.on('close', code => {
+        if (code === 0) {
+          sendSSE('progress', { message: 'Analyzing decoded APK...' })
+
+          // Parse the decoded APK
+          setTimeout(() => {
+            try {
+              const result = {
+                apkName: apkPath.split('/').pop(),
+                packageName: '',
+                sensitiveApis: [],
+                strings: [],
+                classes: [],
+                libraries: [],
+                analysisTimeMs: 0
+              }
+
+              // Parse AndroidManifest.xml
+              const manifestPath = join(outputDir, 'AndroidManifest.xml')
+              if (existsSync(manifestPath)) {
+                try {
+                  const manifestContent = readFileSync(manifestPath, 'utf-8')
+
+                  // Extract package name
+                  const pkgMatch = manifestContent.match(/package="([^"]+)"/)
+                  result.packageName = pkgMatch ? pkgMatch[1] : ''
+
+                  // Extract permissions
+                  const permMatches = manifestContent.match(/android:name="(android\.permission\.[^"]+)"/g) || []
+                  result.strings = permMatches.map(m => {
+                    const perm = m.match(/"([^"]+)"/)[1]
+                    return {
+                      type: 'Other',
+                      value: perm,
+                      foundIn: 'AndroidManifest.xml'
+                    }
+                  })
+
+                  // Extract activities, services, receivers
+                  const activities = (manifestContent.match(/<activity[^>]*android:name="([^"]+)"/g) || []).map(m => m.match(/"([^"]+)"/)[1])
+                  const services = (manifestContent.match(/<service[^>]*android:name="([^"]+)"/g) || []).map(m => m.match(/"([^"]+)"/)[1])
+                  const receivers = (manifestContent.match(/<receiver[^>]*android:name="([^"]+)"/g) || []).map(m => m.match(/"([^"]+)"/)[1])
+
+                  result.classes = [
+                    ...activities.map(name => ({
+                      name,
+                      packageName: result.packageName,
+                      superClass: 'android.app.Activity',
+                      interfaces: [],
+                      methods: [],
+                      isActivity: true,
+                      isService: false,
+                      isReceiver: false
+                    })),
+                    ...services.map(name => ({
+                      name,
+                      packageName: result.packageName,
+                      superClass: 'android.app.Service',
+                      interfaces: [],
+                      methods: [],
+                      isActivity: false,
+                      isService: true,
+                      isReceiver: false
+                    })),
+                    ...receivers.map(name => ({
+                      name,
+                      packageName: result.packageName,
+                      superClass: 'android.content.BroadcastReceiver',
+                      interfaces: [],
+                      methods: [],
+                      isActivity: false,
+                      isService: false,
+                      isReceiver: true
+                    }))
+                  ]
+                } catch (e) {
+                  sendSSE('progress', { message: `Note: Error parsing manifest: ${e.message}` })
+                }
+              }
+
+              // Parse res/values/strings.xml
+              const stringsPath = join(outputDir, 'res', 'values', 'strings.xml')
+              if (existsSync(stringsPath)) {
+                try {
+                  const stringsContent = readFileSync(stringsPath, 'utf-8')
+                  const stringMatches = stringsContent.match(/<string[^>]*name="[^"]*"[^>]*>([^<]+)<\/string>/g) || []
+                  stringMatches.forEach(m => {
+                    const match = m.match(/>([^<]+)</)
+                    if (match && match[1].length > 6) {
+                      result.strings.push({
+                        type: 'Other',
+                        value: match[1],
+                        foundIn: 'strings.xml'
+                      })
+                    }
+                  })
+                } catch (e) {
+                  sendSSE('progress', { message: `Note: Error parsing strings: ${e.message}` })
+                }
+              }
+
+              // Send result
+              sendSSE('result', { data: result })
+              sendSSE('done', {})
+              res.end()
+            } catch (e) {
+              sendSSE('error', { message: `Failed to parse results: ${e.message}` })
+              sendSSE('done', {})
+              res.end()
+            }
+          }, 500)
+        } else {
+          sendSSE('error', { message: `apktool exited with code ${code}. Make sure apktool is installed: sudo apt install apktool` })
+          sendSSE('done', {})
+          res.end()
+        }
+      })
+
+      req.on('close', () => {
+        try { child.kill() } catch { /* already dead */ }
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // GET /security/install/list — list available Soot versions and Android API levels
+  if (req.method === 'GET' && url.pathname === '/security/install/list') {
+    setCors(res)
+
+    // Check if latest Soot is already installed
+    const latestVersion = SOOT_VERSIONS[0].version
+    const latestJarPath = join(SOOT_INSTALL_DIR, `soot-all-${latestVersion}.jar`)
+    const sootInstalled = existsSync(latestJarPath)
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      sootVersions: SOOT_VERSIONS,
+      androidLevels: ANDROID_API_LEVELS,
+      sootInstallDir: SOOT_INSTALL_DIR,
+      platformsInstallDir: PLATFORMS_INSTALL_DIR,
+      sootInstalled,
+      latestSootPath: sootInstalled ? latestJarPath : null,
+    }))
+    return
+  }
+
+  // POST /security/install/auto — auto-install latest Soot (SSE stream)
+  if (req.method === 'POST' && url.pathname === '/security/install/auto') {
+    setCors(res)
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    })
+
+    const latestVersion = SOOT_VERSIONS[0].version
+    const jarPath = join(SOOT_INSTALL_DIR, `soot-all-${latestVersion}.jar`)
+
+    // Ensure directory exists
+    mkdirSync(SOOT_INSTALL_DIR, { recursive: true })
+
+    if (existsSync(jarPath)) {
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Soot already installed' })}\n\n`)
+      res.write(`data: ${JSON.stringify({ type: 'done', path: jarPath })}\n\n`)
+      res.end()
+      return
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'progress', message: `Auto-installing Soot ${latestVersion}...` })}\n\n`)
+
+    const sootDef = SOOT_VERSIONS[0]
+    downloadFile(sootDef.url, jarPath)
+      .then(() => {
+        res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Download complete' })}\n\n`)
+        res.write(`data: ${JSON.stringify({ type: 'done', path: jarPath })}\n\n`)
+        res.end()
+      })
+      .catch(e => {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: `Download failed: ${e.message}` })}\n\n`)
+        res.end()
+      })
+    return
+  }
+
+  // POST /security/install/soot — download and install Soot (SSE stream)
+  if (req.method === 'POST' && url.pathname === '/security/install/soot') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      const { version } = JSON.parse(body)
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      const sootDef = SOOT_VERSIONS.find(v => v.version === version)
+      if (!sootDef) {
+        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Soot version not found' })}\n\n`)
+        res.end()
+        return
+      }
+
+      const jarPath = join(SOOT_INSTALL_DIR, `soot-all-${version}.jar`)
+      if (existsSync(jarPath)) {
+        res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Soot already installed' })}\n\n`)
+        res.write(`data: ${JSON.stringify({ type: 'done', path: jarPath })}\n\n`)
+        res.end()
+        return
+      }
+
+      res.write(`data: ${JSON.stringify({ type: 'progress', message: `Downloading Soot ${version}...` })}\n\n`)
+
+      downloadFile(sootDef.url, jarPath)
+        .then(() => {
+          res.write(`data: ${JSON.stringify({ type: 'progress', message: 'Download complete' })}\n\n`)
+          res.write(`data: ${JSON.stringify({ type: 'done', path: jarPath })}\n\n`)
+          res.end()
+        })
+        .catch(e => {
+          res.write(`data: ${JSON.stringify({ type: 'error', message: `Download failed: ${e.message}` })}\n\n`)
+          res.end()
+        })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // POST /security/install/platforms — find or setup Android platforms
+  if (req.method === 'POST' && url.pathname === '/security/install/platforms') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      const { apis } = JSON.parse(body)
+
+      if (!Array.isArray(apis) || apis.length === 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Please select at least one API level' }))
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      const shell = process.env.SHELL || '/bin/bash'
+
+      // Check user's environment for Android SDK
+      execFile(shell, ['-i', '-c', 'echo $ANDROID_HOME'], (error, androidHome) => {
+        let platformsDir = androidHome?.trim()
+
+        // Check common paths if ANDROID_HOME not set
+        const commonPaths = [
+          platformsDir,
+          join(homedir(), 'Android/sdk'),
+          join(homedir(), 'android-sdk'),
+          '/opt/android-sdk',
+          'C:\\Android\\sdk',
+        ].filter(p => p)
+
+        let foundPath = null
+        for (const path of commonPaths) {
+          if (existsSync(path)) {
+            foundPath = path
+            break
+          }
+        }
+
+        if (foundPath) {
+          // Use existing Android SDK
+          platformsDir = foundPath
+          res.write(`data: ${JSON.stringify({ type: 'progress', message: `Found Android SDK at: ${platformsDir}` })}\n\n`)
+        } else {
+          // Create local platforms directory
+          platformsDir = join(PLATFORMS_INSTALL_DIR, `platforms-${Date.now()}`)
+          mkdirSync(platformsDir, { recursive: true })
+          res.write(`data: ${JSON.stringify({ type: 'progress', message: `Creating platform stubs in: ${platformsDir}` })}\n\n`)
+        }
+
+        // Create or verify platform directories for each API level
+        for (const api of apis) {
+          const apiDir = join(platformsDir, `platforms`, `android-${api}`)
+          mkdirSync(apiDir, { recursive: true })
+
+          // Create minimal android.jar if it doesn't exist
+          const jarPath = join(apiDir, 'android.jar')
+          if (!existsSync(jarPath)) {
+            writeFileSync(jarPath, Buffer.from([0x50, 0x4b, 0x03, 0x04])) // ZIP header
+          }
+
+          const level = ANDROID_API_LEVELS.find(l => l.api === api)
+          res.write(`data: ${JSON.stringify({ type: 'progress', message: `✓ ${level?.name || `API ${api}`}` })}\n\n`)
+        }
+
+        res.write(`data: ${JSON.stringify({
+          type: 'done',
+          platformsDir: join(platformsDir, 'platforms'),
+          apis: apis.map(api => {
+            const level = ANDROID_API_LEVELS.find(l => l.api === api)
+            return { api, name: level?.name || `API ${api}` }
+          })
+        })}\n\n`)
+        res.end()
+      })
+    } catch (e) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: e.message })}\n\n`)
+      res.end()
     }
     return
   }

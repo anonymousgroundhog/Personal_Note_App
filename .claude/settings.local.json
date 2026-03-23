@@ -44,7 +44,24 @@
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(''''results:'''', len\\(d.get\\(''''results'''',[]\\)\\)\\); print\\(''''raw keys:'''', list\\(d.keys\\(\\)\\)\\)\")",
       "WebFetch(domain:docs.openwebui.com)",
       "Bash(grep -n \"return$\\\\|res\\\\.end\\\\|res\\\\.writeHead\" /home/sean/Documents/Projects/Personal/Personal_Note_App/git-server.mjs)",
-      "Bash(kill -9 98572)"
+      "Bash(kill -9 98572)",
+      "Bash(python3 -m json.tool)",
+      "Bash(pkill -9 node)",
+      "Bash(rm soot-all-4.5.0.jar)",
+      "Bash(wget -O soot-all-4.5.0.jar \"https://repo1.maven.org/maven2/ca/mcgill/sable/soot/4.5.0/soot-4.5.0-jar-with-dependencies.jar\")",
+      "Bash(wget --spider \"https://repo1.maven.org/maven2/ca/mcgill/sable/soot/4.5.0/soot-4.5.0-all.jar\")",
+      "Bash(java -version)",
+      "Bash(xargs dirname:*)",
+      "Bash(export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64)",
+      "Bash(mvn dependency:get -Dartifact=ca.mcgill.sable:soot:4.5.0 -Ddest=~/.note-app-security/soot/soot-all-4.5.0.jar)",
+      "Bash(mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get -Dartifact=ca.mcgill.sable:soot:4.5.0:jar -DremoteRepositories=\"https://repo1.maven.org/maven2\")",
+      "Bash(mvn org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get -Dartifact=ca.mcgill.sable:soot:4.5.0:jar)",
+      "Bash(mvn -q org.apache.maven.plugins:maven-dependency-plugin:3.2.0:get -Dartifact=org.soot-oss:soot:4.5.0:jar)",
+      "Read(//home/spsand1/.m2/repository/org/soot-oss/soot/4.5.0/**)",
+      "Bash(echo \"$HOME/.note-app-security/soot/soot-all-4.5.0.jar\")",
+      "Bash(kill -9 484484)",
+      "Bash(xargs -r kill -9)",
+      "Bash(pkill -9 -f \"node.*git-server\")"
     ]
   }
 }

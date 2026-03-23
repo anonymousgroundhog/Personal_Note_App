@@ -11,6 +11,21 @@ export default defineConfig({
       cert: readFileSync(resolve(__dirname, 'certs/cert.pem')),
       key: readFileSync(resolve(__dirname, 'certs/key.pem')),
     },
+    proxy: {
+      '/security': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/git': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
+      '/terminal': {
+        target: 'ws://localhost:3001',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
   },
   optimizeDeps: {
     include: [

@@ -1,5 +1,5 @@
 import React, { useRef } from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign } from 'lucide-react'
+import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -19,6 +19,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?
   { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD' },
   { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat' },
   { view: 'finance',  icon: <DollarSign size={18} />,   label: 'Finance' },
+  { view: 'security', icon: <Shield size={18} />,       label: 'Security' },
 ]
 
 export default function Sidebar() {
