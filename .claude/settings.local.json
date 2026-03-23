@@ -39,7 +39,12 @@
       "Bash(sudo apt-get:*)",
       "Bash(chmod +x /tmp/mkcert)",
       "Bash(/tmp/mkcert --version)",
-      "Bash(ls /home/sean/Documents/Projects/Personal/Personal_Note_App/*.md)"
+      "Bash(ls /home/sean/Documents/Projects/Personal/Personal_Note_App/*.md)",
+      "Bash(ls /home/sean/Documents/Projects/Personal/Personal_Note_App/*.mjs)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(''''results:'''', len\\(d.get\\(''''results'''',[]\\)\\)\\); print\\(''''raw keys:'''', list\\(d.keys\\(\\)\\)\\)\")",
+      "WebFetch(domain:docs.openwebui.com)",
+      "Bash(grep -n \"return$\\\\|res\\\\.end\\\\|res\\\\.writeHead\" /home/sean/Documents/Projects/Personal/Personal_Note_App/git-server.mjs)",
+      "Bash(kill -9 98572)"
     ]
   }
 }

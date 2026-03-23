@@ -36,6 +36,8 @@ interface AiState {
 }
 
 const STORAGE_KEY = 'aiStore_config'
+// All AI requests go through the local server to avoid mixed-content (HTTPS→HTTP) blocks
+const AI_PROXY = `http://${window.location.hostname}:3001`
 
 function loadConfig(): AiConfig {
   try {
@@ -76,37 +78,31 @@ export const useAiStore = create<AiState>((set, get) => ({
     }
     set({ modelsLoading: true, modelsError: null })
     try {
-      const base = config.serverUrl.replace(/\/$/, '')
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-      if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
-
-      const res = await fetch(`${base}/api/models`, { headers })
+      // Route through local proxy to avoid mixed-content blocks (HTTPS page → HTTP server)
+      const res = await fetch(`${AI_PROXY}/ai/models`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverUrl: config.serverUrl, apiKey: config.apiKey }),
+      })
       if (!res.ok) {
-        // Fallback: try OpenAI-compat /v1/models endpoint
-        const res2 = await fetch(`${base}/v1/models`, { headers })
-        if (!res2.ok) throw new Error(`HTTP ${res2.status}: ${res2.statusText}`)
-        const data2 = await res2.json()
-        const models: AiModel[] = (data2.data ?? []).map((m: { id: string; owned_by?: string }) => ({
-          id: m.id,
-          name: m.id,
-          owned_by: m.owned_by,
-        }))
-        set({ models, modelsLoading: false })
-        if (models.length > 0 && !get().config.selectedModel) {
-          get().setConfig({ selectedModel: models[0].id })
-        }
-        return
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(err.error || `HTTP ${res.status}`)
       }
+      // Proxy normalises all server formats into { data: [{ id, name, owned_by }] }
       const data = await res.json()
-      // OpenWebUI returns { data: [...] } or direct array
-      const raw: { id: string; name?: string; owned_by?: string }[] = data.data ?? data
+      const raw: { id: string; name?: string; owned_by?: string }[] = data.data ?? []
       const models: AiModel[] = raw.map(m => ({
         id: m.id,
         name: m.name || m.id,
         owned_by: m.owned_by,
-      }))
+      })).filter(m => m.id)
+      if (models.length === 0) {
+        set({ modelsError: 'Server responded but returned no models. Check the URL is correct.', modelsLoading: false })
+        return
+      }
       set({ models, modelsLoading: false })
-      if (models.length > 0 && !get().config.selectedModel) {
+      // Auto-select first model only if none is currently selected
+      if (!get().config.selectedModel) {
         get().setConfig({ selectedModel: models[0].id })
       }
     } catch (err) {
@@ -127,10 +123,6 @@ export const useAiStore = create<AiState>((set, get) => ({
 
     set({ messages: [...messages, userMsg], streaming: true, streamingContent: '' })
 
-    const base = config.serverUrl.replace(/\/$/, '')
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (config.apiKey) headers['Authorization'] = `Bearer ${config.apiKey}`
-
     // Build message list for the API — include note context as a system message if provided
     const apiMessages: { role: string; content: string }[] = []
     if (context) {
@@ -148,13 +140,14 @@ export const useAiStore = create<AiState>((set, get) => ({
     abortController = new AbortController()
 
     try {
-      // Try OpenAI-compat streaming endpoint (works for OpenWebUI, Ollama, LM Studio, etc.)
-      const endpoint = `${base}/api/chat/completions`
-      const res = await fetch(endpoint, {
+      // Route through local proxy to avoid mixed-content blocks (HTTPS page → HTTP server)
+      const res = await fetch(`${AI_PROXY}/ai/chat`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         signal: abortController.signal,
         body: JSON.stringify({
+          serverUrl: config.serverUrl,
+          apiKey: config.apiKey,
           model: config.selectedModel,
           messages: apiMessages,
           stream: true,
@@ -162,23 +155,8 @@ export const useAiStore = create<AiState>((set, get) => ({
       })
 
       if (!res.ok) {
-        // Fallback to /v1/chat/completions
-        const res2 = await fetch(`${base}/v1/chat/completions`, {
-          method: 'POST',
-          headers,
-          signal: abortController.signal,
-          body: JSON.stringify({
-            model: config.selectedModel,
-            messages: apiMessages,
-            stream: true,
-          }),
-        })
-        if (!res2.ok) {
-          const errText = await res2.text()
-          throw new Error(`HTTP ${res2.status}: ${errText}`)
-        }
-        await processStream(res2, set, get)
-        return
+        const errText = await res.text()
+        throw new Error(`HTTP ${res.status}: ${errText}`)
       }
 
       await processStream(res, set, get)

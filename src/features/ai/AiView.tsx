@@ -141,10 +141,10 @@ function ConnectionPanel({ onClose }: { onClose: () => void }) {
               type="url"
               value={url}
               onChange={e => setUrl(e.target.value)}
-              placeholder="http://localhost:3000"
+              placeholder="http://your-server:8080"
               className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
             />
-            <p className="text-[10px] text-gray-400 mt-0.5">OpenWebUI, Ollama, LM Studio, OpenAI-compatible APIs</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">OpenWebUI, Ollama, LM Studio, OpenAI-compatible APIs — not port 3001 (that's this app's server)</p>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">API Key <span className="font-normal">(optional)</span></label>

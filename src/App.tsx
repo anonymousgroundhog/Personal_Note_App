@@ -10,6 +10,9 @@ import SyncView from './features/sync/SyncView'
 import DiagramEditor from './features/diagram/DiagramEditor'
 import AiView from './features/ai/AiView'
 import GsdView from './features/gsd/GsdView'
+import CodeEditor from './features/code/CodeEditor'
+import WebView from './features/web/WebView'
+import FinanceView from './features/finance/FinanceView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -78,6 +81,12 @@ export default function App() {
           <AiView />
         ) : activeView === 'gsd' ? (
           <GsdView />
+        ) : activeView === 'code' ? (
+          <CodeEditor />
+        ) : activeView === 'web' ? (
+          <WebView />
+        ) : activeView === 'finance' ? (
+          <FinanceView />
         ) : !hasVault ? (
           <WelcomeScreen />
         ) : (
