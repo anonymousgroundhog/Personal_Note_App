@@ -48,5 +48,17 @@ export function nodeShapePath(n: DiagramNode): string {
     case 'laptop':
     case 'phone':
       return ''
+    // Note shape: folded-corner sticky note
+    case 'note': {
+      const fold = 14
+      return [
+        `M ${x} ${y}`,
+        `h ${w - fold}`,
+        `l ${fold} ${fold}`,
+        `v ${h - fold}`,
+        `h ${-w}`,
+        `Z`,
+      ].join(' ')
+    }
   }
 }

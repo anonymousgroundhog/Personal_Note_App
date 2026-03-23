@@ -58,6 +58,11 @@ export default function FileTree({ nodes, depth = 0 }: Props) {
                 setActiveView('notes')
               }
             }}
+            draggable={node.type === 'file'}
+            onDragStart={node.type === 'file' ? (e) => {
+              e.dataTransfer.setData('text/x-note-path', node.path)
+              e.dataTransfer.effectAllowed = 'copy'
+            } : undefined}
           >
             {node.type === 'folder' ? (
               <>
