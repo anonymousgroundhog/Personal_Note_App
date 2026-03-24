@@ -37,6 +37,7 @@ export interface DiagramEdge {
   style: 'solid' | 'dashed' | 'dotted'
   arrow: 'end' | 'both' | 'none'
   strokeWidth: number
+  color?: string
 }
 
 export interface Diagram {
@@ -134,11 +135,26 @@ function getBorderPoint(n: DiagramNode, tx: number, ty: number): [number, number
   return [cx + dx * t, cy + dy * t]
 }
 
-function edgePath(from: DiagramNode, to: DiagramNode): string {
+const ARROW_LEN = 10 // must match markerWidth in <defs>
+
+function edgePath(from: DiagramNode, to: DiagramNode, arrowEnd = false, arrowStart = false): string {
   const [tcx, tcy] = getNodeCenter(to)
   const [fcx, fcy] = getNodeCenter(from)
-  const [bfx, bfy] = getBorderPoint(from, tcx, tcy)
-  const [btx, bty] = getBorderPoint(to, fcx, fcy)
+  let [bfx, bfy] = getBorderPoint(from, tcx, tcy)
+  let [btx, bty] = getBorderPoint(to, fcx, fcy)
+
+  // Retract endpoints so the arrowhead tip lands exactly on the border point
+  // We use the straight-line direction between border points as the approach angle
+  if (arrowEnd || arrowStart) {
+    const len = Math.hypot(btx - bfx, bty - bfy)
+    if (len > 0.001) {
+      const ux = (btx - bfx) / len
+      const uy = (bty - bfy) / len
+      if (arrowEnd) { btx -= ux * ARROW_LEN; bty -= uy * ARROW_LEN }
+      if (arrowStart) { bfx += ux * ARROW_LEN; bfy += uy * ARROW_LEN }
+    }
+  }
+
   const dx = btx - bfx
   return `M ${bfx} ${bfy} C ${bfx + dx * 0.5} ${bfy} ${btx - dx * 0.5} ${bty} ${btx} ${bty}`
 }
@@ -200,15 +216,26 @@ export default function DiagramEditor() {
 
   // ── Note popup ──
   const [notePopup, setNotePopup] = useState<{ nodeId: string; screenX: number; screenY: number } | null>(null)
+  const notePopupHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleHidePopup = useCallback(() => {
+    notePopupHideTimer.current = setTimeout(() => setNotePopup(null), 120)
+  }, [])
+  const cancelHidePopup = useCallback(() => {
+    if (notePopupHideTimer.current) clearTimeout(notePopupHideTimer.current)
+  }, [])
 
   // ── Drag ──
   const dragRef = useRef<{
-    type: 'node' | 'canvas'
+    type: 'node' | 'canvas' | 'select'
     nodeIds?: string[]
     startClient: [number, number]
     startNodePos?: [number, number][]
     startVp?: { x: number; y: number }
+    startCanvas?: [number, number]
   } | null>(null)
+
+  // ── Rubber-band selection rect (in canvas coords) ──
+  const [selectionRect, setSelectionRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
 
   // ── Connect mode ──
   // connectMode: whether connect tool is active
@@ -236,6 +263,10 @@ export default function DiagramEditor() {
 
   // ── Palette drag ──
   const paletteDragRef = useRef<{ shape: NodeShape } | null>(null)
+
+  // ── Notes panel state ──
+  const [notesExpanded, setNotesExpanded] = useState(true)
+  const [notesFilter, setNotesFilter] = useState('')
 
   // ── Colors ──
   const colors = useMemo(() => ({
@@ -365,15 +396,18 @@ export default function DiagramEditor() {
     }
     if (editingLabel) { commitLabel(); return }
     setNotePopup(null)
-    setSelectedNodeIds(new Set())
     setSelectedEdgeId(null)
-    setIsDraggingCanvas(true)
+
+    // Start rubber-band selection
+    const canvasPos = clientToCanvas(e.clientX, e.clientY)
+    setSelectedNodeIds(new Set())
     dragRef.current = {
-      type: 'canvas',
+      type: 'select',
       startClient: [e.clientX, e.clientY],
-      startVp: { x: viewport.x, y: viewport.y },
+      startCanvas: canvasPos,
     }
-  }, [connectMode, editingLabel, commitLabel, viewport])
+    setSelectionRect({ x: canvasPos[0], y: canvasPos[1], w: 0, h: 0 })
+  }, [connectMode, editingLabel, commitLabel, viewport, clientToCanvas])
 
   // ── Global mouse move/up ──
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -393,12 +427,36 @@ export default function DiagramEditor() {
         }),
       })
     }
-  }, [viewport.scale, diagram.nodes, updateDiagram])
+    if (dr.type === 'select' && dr.startCanvas) {
+      const [cx, cy] = clientToCanvas(e.clientX, e.clientY)
+      const [sx, sy] = dr.startCanvas
+      setSelectionRect({
+        x: Math.min(cx, sx), y: Math.min(cy, sy),
+        w: Math.abs(cx - sx), h: Math.abs(cy - sy),
+      })
+    }
+  }, [viewport.scale, diagram.nodes, updateDiagram, clientToCanvas])
 
   const handleMouseUp = useCallback(() => {
+    const dr = dragRef.current
+    if (dr?.type === 'select' && dr.startCanvas) {
+      // Finalise rubber-band: select all nodes intersecting the rect
+      setSelectionRect(rect => {
+        if (rect && (rect.w > 4 || rect.h > 4)) {
+          const hits = diagram.nodes.filter(n =>
+            n.x < rect.x + rect.w && n.x + n.w > rect.x &&
+            n.y < rect.y + rect.h && n.y + n.h > rect.y
+          )
+          if (hits.length > 0) setSelectedNodeIds(new Set(hits.map(n => n.id)))
+        }
+        return null
+      })
+    } else {
+      setSelectionRect(null)
+    }
     dragRef.current = null
     setIsDraggingCanvas(false)
-  }, [])
+  }, [diagram.nodes])
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove)
@@ -676,6 +734,48 @@ export default function DiagramEditor() {
   const updateSelectedNodes = (patch: Partial<DiagramNode>) =>
     updateDiagram({ nodes: diagram.nodes.map(n => selectedNodeIds.has(n.id) ? { ...n, ...patch } : n) })
 
+  // ── Align / distribute ──
+  const alignNodes = useCallback((type: 'left' | 'centerH' | 'right' | 'top' | 'centerV' | 'bottom' | 'distributeH' | 'distributeV') => {
+    const sel = diagram.nodes.filter(n => selectedNodeIds.has(n.id))
+    if (sel.length < 2) return
+    const sorted = (axis: 'x' | 'y') => [...sel].sort((a, b) => a[axis] - b[axis])
+    let moved: Record<string, Partial<DiagramNode>> = {}
+    if (type === 'left') {
+      const ref = Math.min(...sel.map(n => n.x))
+      sel.forEach(n => { moved[n.id] = { x: ref } })
+    } else if (type === 'right') {
+      const ref = Math.max(...sel.map(n => n.x + n.w))
+      sel.forEach(n => { moved[n.id] = { x: ref - n.w } })
+    } else if (type === 'centerH') {
+      const ref = (Math.min(...sel.map(n => n.x)) + Math.max(...sel.map(n => n.x + n.w))) / 2
+      sel.forEach(n => { moved[n.id] = { x: snap(ref - n.w / 2) } })
+    } else if (type === 'top') {
+      const ref = Math.min(...sel.map(n => n.y))
+      sel.forEach(n => { moved[n.id] = { y: ref } })
+    } else if (type === 'bottom') {
+      const ref = Math.max(...sel.map(n => n.y + n.h))
+      sel.forEach(n => { moved[n.id] = { y: ref - n.h } })
+    } else if (type === 'centerV') {
+      const ref = (Math.min(...sel.map(n => n.y)) + Math.max(...sel.map(n => n.y + n.h))) / 2
+      sel.forEach(n => { moved[n.id] = { y: snap(ref - n.h / 2) } })
+    } else if (type === 'distributeH') {
+      const s = sorted('x')
+      const totalW = s.reduce((a, n) => a + n.w, 0)
+      const span = s[s.length - 1].x + s[s.length - 1].w - s[0].x
+      const gap = (span - totalW) / (s.length - 1)
+      let cursor = s[0].x + s[0].w
+      s.slice(1, -1).forEach(n => { moved[n.id] = { x: snap(cursor + gap) }; cursor += gap + n.w })
+    } else if (type === 'distributeV') {
+      const s = sorted('y')
+      const totalH = s.reduce((a, n) => a + n.h, 0)
+      const span = s[s.length - 1].y + s[s.length - 1].h - s[0].y
+      const gap = (span - totalH) / (s.length - 1)
+      let cursor = s[0].y + s[0].h
+      s.slice(1, -1).forEach(n => { moved[n.id] = { y: snap(cursor + gap) }; cursor += gap + n.h })
+    }
+    updateDiagram({ nodes: diagram.nodes.map(n => moved[n.id] ? { ...n, ...moved[n.id] } : n) })
+  }, [diagram.nodes, selectedNodeIds, updateDiagram])
+
   const selectedEdge = selectedEdgeId ? diagram.edges.find(e => e.id === selectedEdgeId) ?? null : null
   const updateSelectedEdge = (patch: Partial<DiagramEdge>) => {
     if (!selectedEdgeId) return
@@ -807,6 +907,36 @@ export default function DiagramEditor() {
         </div>
       </div>
 
+      {/* ── Align / distribute toolbar — visible when 2+ nodes selected ── */}
+      {selectedNodeIds.size >= 2 && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex-shrink-0 flex-wrap">
+          <span className="text-[10px] text-gray-400 mr-1 font-medium uppercase tracking-wide">{selectedNodeIds.size} selected</span>
+          <span className="text-[10px] text-gray-300 dark:text-gray-600 mr-1">Align:</span>
+          {([
+            { type: 'left',    title: 'Align left edges',          label: '| Left'   },
+            { type: 'centerH', title: 'Center horizontally',       label: '| Mid H'  },
+            { type: 'right',   title: 'Align right edges',         label: 'Right |'  },
+            { type: 'top',     title: 'Align top edges',           label: '— Top'    },
+            { type: 'centerV', title: 'Center vertically',         label: '— Mid V'  },
+            { type: 'bottom',  title: 'Align bottom edges',        label: 'Bot —'    },
+          ] as const).map(({ type, title, label }) => (
+            <button key={type} onClick={() => alignNodes(type)} title={title}
+              className="px-1.5 py-0.5 text-[10px] font-medium rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors whitespace-nowrap">
+              {label}
+            </button>
+          ))}
+          <span className="text-[10px] text-gray-300 dark:text-gray-600 ml-2 mr-1">Distribute:</span>
+          <button onClick={() => alignNodes('distributeH')} title="Distribute horizontally with equal spacing"
+            className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+            ↔
+          </button>
+          <button onClick={() => alignNodes('distributeV')} title="Distribute vertically with equal spacing"
+            className="px-2 py-0.5 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+            ↕
+          </button>
+        </div>
+      )}
+
       {/* ── Embed panel ── */}
       {showEmbed && (
         <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-accent-50 dark:bg-accent-900/10 flex items-center gap-3 flex-shrink-0">
@@ -839,6 +969,57 @@ export default function DiagramEditor() {
         {/* ── Shape palette or mindmap hint panel ── */}
         {!diagram.mindmapMode ? (
           <div className="w-[76px] flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex flex-col py-2 overflow-y-auto">
+
+            {/* Notes import section */}
+            <div className="mb-2 px-1">
+              <button
+                onClick={() => setNotesExpanded(v => !v)}
+                className="w-full flex items-center justify-center gap-0.5 mb-1 group"
+                title="Search and drag notes onto canvas"
+              >
+                <span className="text-base leading-none">📝</span>
+                <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400 group-hover:text-accent-500 transition-colors">Notes</p>
+                <span className="text-[9px] text-gray-300 ml-0.5">{notesExpanded ? '▾' : '▸'}</span>
+              </button>
+              {notesExpanded && (
+                <div className="flex flex-col gap-0.5">
+                  <input
+                    value={notesFilter}
+                    onChange={e => setNotesFilter(e.target.value)}
+                    placeholder="Search notes…"
+                    className="w-full text-[9px] px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 outline-none"
+                  />
+                  {notesFilter.trim() === '' ? (
+                    <p className="text-[8px] text-gray-400 text-center leading-tight mt-0.5 px-0.5">Type to search notes</p>
+                  ) : (() => {
+                    const filtered = noteList.filter(k => k.toLowerCase().includes(notesFilter.toLowerCase()))
+                    if (filtered.length === 0) return (
+                      <p className="text-[8px] text-gray-400 text-center leading-tight mt-0.5">No matches</p>
+                    )
+                    return filtered.map(notePath => {
+                      const label = notePath.replace(/\.md$/, '').split('/').pop() ?? notePath
+                      const entry = index.get(notePath)
+                      return (
+                        <div
+                          key={notePath}
+                          draggable
+                          onDragStart={e => {
+                            paletteDragRef.current = null
+                            e.dataTransfer.setData('text/x-note-path', notePath)
+                          }}
+                          className="w-full px-1 py-1 flex flex-col items-center justify-center rounded border border-dashed border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/20 cursor-grab hover:border-accent-400 hover:bg-accent-50 dark:hover:bg-accent-900/20 select-none transition-colors"
+                          title={entry?.excerpt ? `${label}\n\n${entry.excerpt}` : `Drag "${label}" onto canvas`}
+                        >
+                          <span className="text-[8px] text-gray-600 dark:text-gray-300 leading-tight text-center break-all line-clamp-2">{label}</span>
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+              )}
+            </div>
+            <div className="mx-1 mb-2 border-t border-gray-200 dark:border-gray-700" />
+
             {paletteSections.map(([section, shapes]) => (
               <div key={section} className="mb-2 px-1">
                 <p className="text-[9px] font-semibold uppercase tracking-wider text-gray-400 text-center mb-1">{section}</p>
@@ -912,15 +1093,24 @@ export default function DiagramEditor() {
                 <path d={`M ${GRID * viewport.scale} 0 L 0 0 0 ${GRID * viewport.scale}`}
                   fill="none" stroke={colors.gridLine} strokeWidth={0.5} />
               </pattern>
-              <marker id="dg-arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStroke} />
-              </marker>
-              <marker id="dg-arrow-sel" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-                <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStrokeSel} />
-              </marker>
-              <marker id="dg-arrow-both" markerWidth="8" markerHeight="8" refX="2" refY="3" orient="auto-start-reverse">
-                <path d="M0,0 L0,6 L8,3 Z" fill={colors.edgeStroke} />
-              </marker>
+              {/* Per-color arrow markers — one end + one start marker per unique edge color */}
+              {(() => {
+                const edgeColors = new Set<string>()
+                edgeColors.add(colors.edgeStroke)
+                edgeColors.add(colors.edgeStrokeSel)
+                diagram.edges.forEach(e => { if (e.color) edgeColors.add(e.color) })
+                return [...edgeColors].flatMap(c => {
+                  const id = `dg-arr-${c.replace('#', '')}`
+                  return [
+                    <marker key={`${id}-end`} id={`${id}-end`} markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
+                      <path d="M0,0 L10,3.5 L0,7 Z" fill={c} />
+                    </marker>,
+                    <marker key={`${id}-start`} id={`${id}-start`} markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+                      <path d="M0,0 L10,3.5 L0,7 Z" fill={c} />
+                    </marker>,
+                  ]
+                })
+              })()}
             </defs>
 
             {!diagram.transparentBg && <rect width="100%" height="100%" fill="url(#dg-grid)" />}
@@ -960,8 +1150,11 @@ export default function DiagramEditor() {
                   const to = diagram.nodes.find(n => n.id === edge.toId)
                   if (!from || !to) return null
                   const isSel = edge.id === selectedEdgeId
-                  const d = edgePath(from, to)
-                  const stroke = isSel ? colors.edgeStrokeSel : colors.edgeStroke
+                  const arrowEnd = edge.arrow !== 'none'
+                  const arrowStart = edge.arrow === 'both'
+                  const d = edgePath(from, to, arrowEnd, arrowStart)
+                  const baseColor = edge.color ?? colors.edgeStroke
+                  const stroke = isSel ? colors.edgeStrokeSel : baseColor
                   const [fx, fy] = getBorderPoint(from, to.x + to.w / 2, to.y + to.h / 2)
                   const [tx, ty] = getBorderPoint(to, from.x + from.w / 2, from.y + from.h / 2)
                   const mid: [number, number] = [(fx + tx) / 2, (fy + ty) / 2]
@@ -972,12 +1165,13 @@ export default function DiagramEditor() {
                       <path d={d} fill="none" stroke={stroke}
                         strokeWidth={isSel ? (edge.strokeWidth ?? 1.5) + 1 : (edge.strokeWidth ?? 1.5)}
                         strokeDasharray={edge.style === 'dashed' ? '6 4' : edge.style === 'dotted' ? '2 4' : undefined}
-                        markerEnd={edge.arrow !== 'none' ? `url(#dg-arrow${isSel ? '-sel' : ''})` : undefined}
-                        markerStart={edge.arrow === 'both' ? 'url(#dg-arrow-both)' : undefined}
+                        markerEnd={edge.arrow !== 'none' ? `url(#dg-arr-${stroke.replace('#', '')}-end)` : undefined}
+                        markerStart={edge.arrow === 'both' ? `url(#dg-arr-${stroke.replace('#', '')}-start)` : undefined}
+                        strokeLinecap="round"
                       />
                       {edge.label && (
                         <text x={mid[0]} y={mid[1] - 7} textAnchor="middle" fontSize={10}
-                          fill={isSel ? colors.edgeStrokeSel : colors.edgeStroke}
+                          fill={stroke}
                           style={{ userSelect: 'none' }}
                           onDoubleClick={(e: React.MouseEvent) => { e.stopPropagation(); setEditingLabel({ type: 'edge', id: edge.id, value: edge.label }) }}>
                           {edge.label}
@@ -1063,17 +1257,18 @@ export default function DiagramEditor() {
                             {node.label.length > 20 ? node.label.slice(0, 19) + '…' : node.label}
                           </text>
                         )}
-                        {/* Invisible click area for popup */}
+                        {/* Invisible hover area for popup */}
                         <rect x={node.x} y={node.y} width={node.w} height={node.h}
                           fill="transparent" stroke="none"
-                          onClick={e => {
-                            e.stopPropagation()
+                          onMouseEnter={() => {
+                            cancelHidePopup()
                             const rect = svgRef.current?.getBoundingClientRect()
                             if (!rect) return
                             const screenX = (node.x + node.w / 2) * viewport.scale + viewport.x + rect.left
                             const screenY = (node.y + node.h) * viewport.scale + viewport.y + rect.top
                             setNotePopup({ nodeId: node.id, screenX, screenY })
                           }}
+                          onMouseLeave={scheduleHidePopup}
                         />
                       </>
                     ) : isNetwork ? (
@@ -1187,30 +1382,46 @@ export default function DiagramEditor() {
                   </g>
                 )
               })}
+
+              {/* Rubber-band selection rect */}
+              {selectionRect && (
+                <rect
+                  x={selectionRect.x} y={selectionRect.y}
+                  width={selectionRect.w} height={selectionRect.h}
+                  fill="rgba(99,102,241,0.08)" stroke="#6366f1" strokeWidth={1 / viewport.scale}
+                  strokeDasharray={`${4 / viewport.scale} ${3 / viewport.scale}`}
+                  style={{ pointerEvents: 'none' }}
+                />
+              )}
             </g>
           </svg>
 
-          {/* Note excerpt popup */}
+          {/* Note content hover popup */}
           {notePopup && (() => {
             const popupNode = diagram.nodes.find(n => n.id === notePopup.nodeId)
             const noteEntry = popupNode?.notePath ? index.get(popupNode.notePath) : null
             return (
               <div
-                className="absolute z-50 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl p-3"
-                style={{ left: notePopup.screenX, top: notePopup.screenY, transform: 'translateX(-50%)' }}
+                className="absolute z-50 w-72 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-xl flex flex-col"
+                style={{ left: notePopup.screenX, top: notePopup.screenY, transform: 'translateX(-50%)', maxHeight: '320px' }}
+                onMouseEnter={cancelHidePopup}
+                onMouseLeave={scheduleHidePopup}
               >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
+                  <span className="text-sm">📄</span>
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-200 truncate flex-1">
                     {popupNode?.label}
                   </span>
-                  <button onClick={() => setNotePopup(null)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs ml-2 flex-shrink-0">
-                    ✕
-                  </button>
                 </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                  {noteEntry?.excerpt || '(No excerpt available)'}
-                </p>
-                <p className="text-[10px] text-gray-300 dark:text-gray-600 mt-2 truncate">{popupNode?.notePath}</p>
+                <div className="overflow-y-auto px-3 py-2 flex-1" style={{ minHeight: 0 }}>
+                  {noteEntry?.body ? (
+                    <pre className="text-[10px] text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap font-sans">
+                      {noteEntry.body}
+                    </pre>
+                  ) : (
+                    <p className="text-[10px] text-gray-400 italic">(No content)</p>
+                  )}
+                </div>
               </div>
             )
           })()}
@@ -1393,6 +1604,27 @@ export default function DiagramEditor() {
                         onChange={e => updateSelectedEdge({ strokeWidth: Number(e.target.value) })}
                         className="flex-1 accent-accent-500" />
                       <span className="w-6 text-right text-gray-500">{selectedEdge.strokeWidth ?? 1.5}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelCls}>Color</label>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {COLOR_PRESETS.map(c => (
+                        <button key={c}
+                          onClick={() => updateSelectedEdge({ color: c })}
+                          className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${(selectedEdge.color ?? colors.edgeStroke) === c ? 'border-gray-600 dark:border-gray-200 scale-110' : 'border-transparent'}`}
+                          style={{ background: c }} title={c} />
+                      ))}
+                      <input type="color"
+                        value={selectedEdge.color ?? colors.edgeStroke}
+                        onChange={e => updateSelectedEdge({ color: e.target.value })}
+                        className="w-5 h-5 rounded cursor-pointer border-0 p-0 bg-transparent"
+                        title="Custom color" />
+                      {selectedEdge.color && (
+                        <button onClick={() => updateSelectedEdge({ color: undefined })}
+                          className="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          title="Reset to default">↺</button>
+                      )}
                     </div>
                   </div>
                   <button
