@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import JimpleAnalyzerView from './JimpleAnalyzerView'
 import AndroidManifestAnalyzerView from './AndroidManifestAnalyzerView'
+import CVSSCalculatorView from './CVSSCalculatorView'
 
-type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer'
+type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator'
 
 interface Tool {
   id: SecurityTool
@@ -12,7 +13,8 @@ interface Tool {
 
 const TOOLS: Tool[] = [
   { id: 'jimple-analyzer', label: 'Jimple Analyzer', icon: '🔍' },
-  { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' }
+  { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' },
+  { id: 'cvss-calculator', label: 'CVSS Calculator', icon: '🎯' }
 ]
 
 export default function SecurityView() {
@@ -44,6 +46,7 @@ export default function SecurityView() {
       <div className="flex-1 overflow-hidden">
         {activeTool === 'jimple-analyzer' && <JimpleAnalyzerView />}
         {activeTool === 'manifest-analyzer' && <AndroidManifestAnalyzerView />}
+        {activeTool === 'cvss-calculator' && <CVSSCalculatorView />}
       </div>
     </div>
   )
