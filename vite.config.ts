@@ -25,6 +25,10 @@ export default defineConfig({
         ws: true,
         changeOrigin: true,
       },
+      '/discord': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
   optimizeDeps: {

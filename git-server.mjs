@@ -1590,6 +1590,66 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // ── Discord REST proxy ──────────────────────────────────────────────────────
+  // Proxies /discord/* → https://discord.com/api/v10/*
+  // Supports:
+  //   - Authorization header (bot token, forwarded as-is)
+  //   - x-webhook-token header (webhook token, forwarded as "Bot <token>")
+  //   - No auth (public endpoints like GET /webhooks/{id}/{token})
+  if (url.pathname.startsWith('/discord/')) {
+    const discordPath = url.pathname.replace('/discord/', '')
+    const discordUrl = `https://discord.com/api/v10/${discordPath}${url.search}`
+    const method = req.method
+
+    // Determine Authorization header to forward.
+    // x-bot-token and x-webhook-token are used instead of Authorization because
+    // Vite's proxy strips the Authorization header when forwarding to HTTP targets.
+    let authHeader = req.headers['authorization'] || ''
+    if (!authHeader && req.headers['x-bot-token']) {
+      authHeader = `Bot ${req.headers['x-bot-token']}`
+    } else if (!authHeader && req.headers['x-webhook-token']) {
+      authHeader = `Bot ${req.headers['x-webhook-token']}`
+    }
+
+    try {
+      let bodyData = null
+      if (method === 'POST' || method === 'PATCH' || method === 'PUT') {
+        bodyData = await new Promise((resolve, reject) => {
+          let d = ''
+          req.on('data', c => { d += c; if (d.length > 1e6) reject(new Error('body too large')) })
+          req.on('end', () => resolve(d))
+          req.on('error', reject)
+        })
+      }
+
+      const fetchHeaders = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'NoteApp/1.0',
+      }
+      if (authHeader) fetchHeaders['Authorization'] = authHeader
+
+      const fetchRes = await fetch(discordUrl, {
+        method,
+        headers: fetchHeaders,
+        ...(bodyData ? { body: bodyData } : {}),
+      })
+
+      const text = await fetchRes.text()
+      const responseHeaders = { 'Content-Type': fetchRes.headers.get('content-type') || 'application/json' }
+      // Forward rate-limit headers so clients can see retry timing
+      const retryAfter = fetchRes.headers.get('retry-after')
+      if (retryAfter) responseHeaders['retry-after'] = retryAfter
+      const rateLimit = fetchRes.headers.get('x-ratelimit-remaining')
+      if (rateLimit) responseHeaders['x-ratelimit-remaining'] = rateLimit
+      res.writeHead(fetchRes.status, responseHeaders)
+      res.end(text)
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
   res.writeHead(404)
   res.end('Not found')
 })
