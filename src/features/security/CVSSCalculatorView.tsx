@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { Copy, Check, HelpCircle, X } from 'lucide-react'
+import { useSecurityStore } from './securityStore'
 
 type CVSSVersion = '3.1' | '2.0'
 
@@ -169,6 +170,11 @@ export default function CVSSCalculatorView() {
   }
 
   const result = useMemo(() => calculateCVSS31(metrics), [metrics])
+  const setLastCvssResult = useSecurityStore(s => s.setLastCvssResult)
+
+  useEffect(() => {
+    setLastCvssResult(result)
+  }, [result, setLastCvssResult])
 
   const handleMetricChange = (key: keyof CVSS31Metrics, value: any) => {
     setMetrics(prev => ({ ...prev, [key]: value }))
