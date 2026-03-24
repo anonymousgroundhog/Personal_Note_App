@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react'
-import { Copy, Check } from 'lucide-react'
+import { Copy, Check, HelpCircle, X } from 'lucide-react'
 
 type CVSSVersion = '3.1' | '2.0'
 
@@ -47,6 +47,8 @@ interface CVSSResult {
 export default function CVSSCalculatorView() {
   const [version, setVersion] = useState<CVSSVersion>('3.1')
   const [copied, setCopied] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [hoveredScore, setHoveredScore] = useState<string | null>(null)
   const [metrics, setMetrics] = useState<CVSS31Metrics>({
     AV: 'N',
     AT: 'L',
@@ -193,12 +195,32 @@ export default function CVSSCalculatorView() {
     }
   }
 
+  const scoreTooltips = {
+    'Base Score': 'Calculated from 8 core metrics (AV, AT, PR, UI, S, C, I, A). Represents the inherent severity of the vulnerability without considering context.',
+    'Temporal Score': 'Adjusts the base score based on changing conditions: exploit availability, patch status, and confidence in the vulnerability report. May decrease over time as patches become available.',
+    'Environmental Score': 'Further adjusts the temporal score based on how the vulnerability affects your specific environment, including data sensitivity and mitigation measures.'
+  }
+
   const ScoreDisplay = ({ label, score, severity }: { label: string; score?: number; severity?: string }) => {
     if (score === undefined) return null
     const colors = getSeverityColor(severity || '')
+    const tooltipKey = label as keyof typeof scoreTooltips
     return (
-      <div className={`p-4 rounded border-2 ${colors.bg} ${colors.border}`}>
-        <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">{label}</div>
+      <div
+        className={`p-4 rounded border-2 ${colors.bg} ${colors.border} relative group cursor-help`}
+        onMouseEnter={() => setHoveredScore(label)}
+        onMouseLeave={() => setHoveredScore(null)}
+      >
+        {hoveredScore === label && (
+          <div className="absolute bottom-full mb-2 left-0 right-0 bg-gray-900 dark:bg-gray-800 text-white dark:text-gray-100 text-xs rounded p-2 z-10 whitespace-normal">
+            {scoreTooltips[tooltipKey]}
+            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900 dark:border-t-gray-800"></div>
+          </div>
+        )}
+        <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1">
+          {label}
+          <HelpCircle size={12} className="opacity-50" />
+        </div>
         <div className="flex items-baseline gap-3">
           <div className={`text-3xl font-bold ${colors.text}`}>{score.toFixed(1)}</div>
           <div className={`text-sm font-semibold ${colors.text}`}>{severity}</div>
@@ -229,26 +251,212 @@ export default function CVSSCalculatorView() {
     </div>
   )
 
+  const HelpModal = () => (
+    <div className="fixed inset-0 bg-black/50 dark:bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-white dark:bg-surface-900 rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="sticky top-0 flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-surface-900">
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">CVSS 3.1 Calculator Guide</h2>
+          <button onClick={() => setShowHelp(false)} className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-6">
+          {/* What is CVSS */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">What is CVSS?</h3>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              CVSS (Common Vulnerability Scoring System) is an industry-standard framework for rating the severity of security vulnerabilities. CVSS 3.1 provides a more accurate assessment than earlier versions by considering:
+            </p>
+            <ul className="list-disc list-inside text-sm text-gray-700 dark:text-gray-300 mt-2 space-y-1">
+              <li><strong>Attack complexity</strong> - How easy it is to exploit</li>
+              <li><strong>Required privileges</strong> - What access level is needed</li>
+              <li><strong>Impact</strong> - How much damage the vulnerability can cause</li>
+              <li><strong>Temporal factors</strong> - How likely the vulnerability is to be exploited</li>
+              <li><strong>Environmental context</strong> - How it affects your specific organization</li>
+            </ul>
+          </section>
+
+          {/* Base Metrics */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Base Metrics (Required)</h3>
+            <div className="space-y-3 text-sm">
+              <div className="border-l-4 border-blue-500 pl-3">
+                <strong>Attack Vector (AV)</strong> - How is the vulnerability accessed?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Network (N)</strong> - Remote, over the internet (highest risk)</li>
+                  <li><strong>Adjacent (A)</strong> - Local network or Bluetooth</li>
+                  <li><strong>Local (L)</strong> - Local system access required</li>
+                  <li><strong>Physical (P)</strong> - Physical access required (lowest risk)</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-blue-500 pl-3">
+                <strong>Attack Complexity (AT)</strong> - How difficult is exploitation?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Low (L)</strong> - Trivial or common conditions</li>
+                  <li><strong>High (H)</strong> - Special conditions or careful timing needed</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-blue-500 pl-3">
+                <strong>Privileges Required (PR)</strong> - Must the attacker have access?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>None (N)</strong> - No privileges required</li>
+                  <li><strong>Low (L)</strong> - Non-admin user account</li>
+                  <li><strong>High (H)</strong> - Admin/root access required</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-blue-500 pl-3">
+                <strong>User Interaction (UI)</strong> - Must a user do something?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>None (N)</strong> - No user action needed</li>
+                  <li><strong>Required (R)</strong> - User must click link, open file, etc.</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-blue-500 pl-3">
+                <strong>Scope (S)</strong> - Does it affect other systems?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Unchanged (U)</strong> - Only affects the vulnerable component</li>
+                  <li><strong>Changed (C)</strong> - Can affect other components/systems</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-green-500 pl-3">
+                <strong>Confidentiality (C), Integrity (I), Availability (A)</strong> - What can the attacker do?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>High (H)</strong> - All or most data/functionality affected</li>
+                  <li><strong>Low (L)</strong> - Limited data/functionality affected</li>
+                  <li><strong>None (N)</strong> - No impact</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* Temporal Metrics */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Temporal Metrics (Optional)</h3>
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">These adjust the base score over time as conditions change:</p>
+            <div className="space-y-3 text-sm">
+              <div className="border-l-4 border-yellow-500 pl-3">
+                <strong>Exploit Code Maturity (E)</strong> - How readily available is working exploit code?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Unproven (P)</strong> - No working exploit</li>
+                  <li><strong>Proof of Concept (F)</strong> - PoC code exists</li>
+                  <li><strong>Functional (U)</strong> - Working exploit available</li>
+                  <li><strong>Official (O)</strong> - Official vendor exploit</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-yellow-500 pl-3">
+                <strong>Remediation Level (RL)</strong> - Is a patch available?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Official Fix (O)</strong> - Official vendor patch</li>
+                  <li><strong>Temporary Fix (T)</strong> - Vendor workaround</li>
+                  <li><strong>Workaround (W)</strong> - Community workaround only</li>
+                  <li><strong>Unavailable (U)</strong> - No fix yet</li>
+                </ul>
+              </div>
+              <div className="border-l-4 border-yellow-500 pl-3">
+                <strong>Report Confidence (RC)</strong> - How certain is the report?
+                <ul className="list-disc list-inside text-xs text-gray-600 dark:text-gray-400 mt-1">
+                  <li><strong>Confirmed (C)</strong> - Vulnerability confirmed</li>
+                  <li><strong>Reasonable (R)</strong> - Vendor aware and investigating</li>
+                  <li><strong>Unconfirmed (U)</strong> - Reported but unconfirmed</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          {/* Environmental Metrics */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Environmental Metrics (Optional)</h3>
+            <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">These customize the score for your specific environment:</p>
+            <ul className="list-disc list-inside text-sm text-gray-700 dark:text-gray-300 space-y-1">
+              <li><strong>Requirement Levels (CR, IR, AR)</strong> - How critical is data/uptime/integrity to you? (Low, Medium, High)</li>
+              <li><strong>Modified Metrics (MAV, MAC, etc.)</strong> - Adjust base metrics if your environment is different from typical</li>
+            </ul>
+          </section>
+
+          {/* Severity Ratings */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-3">Severity Ratings</h3>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="p-2 rounded bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700">
+                <strong className="text-red-700 dark:text-red-400">Critical: 9.0-10.0</strong>
+              </div>
+              <div className="p-2 rounded bg-orange-100 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700">
+                <strong className="text-orange-700 dark:text-orange-400">High: 7.0-8.9</strong>
+              </div>
+              <div className="p-2 rounded bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700">
+                <strong className="text-yellow-700 dark:text-yellow-400">Medium: 4.0-6.9</strong>
+              </div>
+              <div className="p-2 rounded bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700">
+                <strong className="text-blue-700 dark:text-blue-400">Low: 0.1-3.9</strong>
+              </div>
+            </div>
+          </section>
+
+          {/* How to Use */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">How to Use This Calculator</h3>
+            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-700 dark:text-gray-300">
+              <li><strong>Set Base Metrics First</strong> - These 8 metrics are required and provide the foundation score</li>
+              <li><strong>Understand Your Vulnerability</strong> - Research the CVE/vulnerability details before rating</li>
+              <li><strong>Evaluate Impact (C, I, A)</strong> - Be thorough about what could be affected</li>
+              <li><strong>Consider Environment</strong> - Does the attack require special network access or conditions?</li>
+              <li><strong>Add Temporal Metrics</strong> - If a patch exists or exploit is widely available, update temporal metrics</li>
+              <li><strong>Customize for Your Org</strong> - Use environmental metrics if the vulnerability is less/more critical to you</li>
+              <li><strong>Copy Vector String</strong> - Share the CVSS vector in reports and vulnerability tracking systems</li>
+            </ol>
+          </section>
+
+          {/* Example */}
+          <section>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Example: Remote Code Execution</h3>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              A web application vulnerability allowing remote code execution:
+            </p>
+            <ul className="list-disc list-inside text-sm text-gray-700 dark:text-gray-300 mt-2 space-y-1">
+              <li>AV: Network (N) - Can be exploited from the internet</li>
+              <li>AT: Low (L) - No special conditions needed</li>
+              <li>PR: None (N) - No authentication required</li>
+              <li>UI: None (N) - No user interaction needed</li>
+              <li>S: Changed (C) - Can affect other systems</li>
+              <li>C/I/A: High (H) - Full compromise possible</li>
+              <li><strong>Result: 9.8 (Critical)</strong></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden gap-4 p-4">
-      {/* Version Selector */}
-      <div className="flex gap-2 pb-2 border-b border-gray-200 dark:border-gray-700">
+      {/* Version Selector and Help */}
+      <div className="flex gap-2 pb-2 border-b border-gray-200 dark:border-gray-700 items-center justify-between">
+        <div className="flex gap-2">
+          <button
+            onClick={() => setVersion('3.1')}
+            className={`px-4 py-2 rounded font-medium text-sm transition-colors ${
+              version === '3.1'
+                ? 'bg-emerald-500 text-white'
+                : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300'
+            }`}
+          >
+            CVSS 3.1
+          </button>
+          <button
+            onClick={() => setVersion('2.0')}
+            disabled
+            className="px-4 py-2 rounded font-medium text-sm text-gray-400 cursor-not-allowed"
+          >
+            CVSS 2.0 (Coming Soon)
+          </button>
+        </div>
         <button
-          onClick={() => setVersion('3.1')}
-          className={`px-4 py-2 rounded font-medium text-sm transition-colors ${
-            version === '3.1'
-              ? 'bg-emerald-500 text-white'
-              : 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-300'
-          }`}
+          onClick={() => setShowHelp(true)}
+          className="flex items-center gap-1 px-3 py-2 rounded bg-blue-100 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/30 transition-colors text-sm font-medium"
         >
-          CVSS 3.1
-        </button>
-        <button
-          onClick={() => setVersion('2.0')}
-          disabled
-          className="px-4 py-2 rounded font-medium text-sm text-gray-400 cursor-not-allowed"
-        >
-          CVSS 2.0 (Coming Soon)
+          <HelpCircle size={16} />
+          Help
         </button>
       </div>
 
@@ -409,6 +617,9 @@ export default function CVSSCalculatorView() {
           </>
         )}
       </div>
+
+      {/* Help Modal */}
+      {showHelp && <HelpModal />}
     </div>
   )
 }
