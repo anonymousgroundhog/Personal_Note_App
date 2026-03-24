@@ -61,7 +61,12 @@
       "Bash(echo \"$HOME/.note-app-security/soot/soot-all-4.5.0.jar\")",
       "Bash(kill -9 484484)",
       "Bash(xargs -r kill -9)",
-      "Bash(pkill -9 -f \"node.*git-server\")"
+      "Bash(pkill -9 -f \"node.*git-server\")",
+      "Bash(pkill -f \"node.*git-server|vite\")",
+      "Bash(find /tmp -name *.jimple)",
+      "Bash(find ~/.local -name *.jimple)",
+      "Bash(find /home/spsand1/SootUp/sootup.java.core/target/test-classes/sootup/java/core/jimple -name *.jimple)",
+      "Bash(netstat -tlnp)"
     ]
   }
 }

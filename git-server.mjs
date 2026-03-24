@@ -19,7 +19,7 @@ import { createServer } from 'http'
 import https from 'https'
 import { spawn, execFile, spawnSync, execFileSync } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, writeFileSync, mkdirSync, readFileSync, createWriteStream } from 'fs'
+import { existsSync, writeFileSync, mkdirSync, readFileSync, createWriteStream, readdirSync } from 'fs'
 import { resolve, join } from 'path'
 import { tmpdir, homedir } from 'os'
 import { randomBytes } from 'crypto'
@@ -950,6 +950,256 @@ const server = createServer(async (req, res) => {
       req.on('close', () => {
         try { child.kill() } catch { /* already dead */ }
       })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // ── Jimple Analysis ─────────────────────────────────────────────────────
+  // Sensitive API patterns for jimple
+  const SENSITIVE_API_PATTERNS = {
+    'Location': [
+      /getLastKnownLocation|requestLocationUpdates|LocationManager|FusedLocationProviderClient/i
+    ],
+    'Device ID': [
+      /getDeviceId|getSubscriberId|getSimSerialNumber|TelephonyManager/i
+    ],
+    'SMS': [
+      /sendTextMessage|sendMultipartTextMessage|SmsManager/i
+    ],
+    'Camera': [
+      /Camera\.open|camera2|cameraManager/i
+    ],
+    'Microphone': [
+      /setAudioSource|AudioRecord|MediaRecorder/i
+    ],
+    'Contacts': [
+      /ContentResolver|query.*contacts|Contacts\.CONTENT_URI/i
+    ],
+    'Network': [
+      /URL\.openConnection|HttpURLConnection|OkHttpClient|newCall/i
+    ],
+    'Crypto': [
+      /Cipher\.|MessageDigest|SecretKeySpec|KeyGenerator/i
+    ],
+    'Runtime Exec': [
+      /Runtime\.exec|ProcessBuilder|start\(\)/i
+    ],
+    'Reflection': [
+      /Method\.invoke|Class\.forName|getDeclaredMethod/i
+    ],
+    'Clipboard': [
+      /ClipboardManager|getPrimaryClip/i
+    ],
+    'Storage': [
+      /FileOutputStream|getExternalStorageDirectory|SharedPreferences/i
+    ]
+  }
+
+  // Library detection patterns
+  const LIBRARY_PATTERNS = [
+    { name: 'OkHttp', pattern: /okhttp3/ },
+    { name: 'Retrofit', pattern: /retrofit2/ },
+    { name: 'Firebase', pattern: /com\/google\/firebase/ },
+    { name: 'Google Play Services', pattern: /com\/google\/android\/gms/ },
+    { name: 'Gson', pattern: /com\/google\/gson/ },
+    { name: 'RxJava', pattern: /io\/reactivex/ },
+    { name: 'AWS SDK', pattern: /com\/amazonaws/ },
+    { name: 'Stripe', pattern: /com\/stripe/ },
+    { name: 'Glide', pattern: /com\/bumptech\/glide/ },
+    { name: 'Picasso', pattern: /com\/squareup\/picasso/ },
+  ]
+
+  // String detection patterns
+  const STRING_PATTERNS = {
+    'URL': /https?:\/\/[^\s"']+/,
+    'IP': /\b(?:\d{1,3}\.){3}\d{1,3}\b/,
+    'Email': /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,
+    'Base64': /[A-Za-z0-9+/]{40,}={0,2}/,
+    'Path': /\/[a-zA-Z0-9_\/.-]{8,}/,
+  }
+
+  // Parse jimple files from a folder
+  function parseJimpleFolder(folderPath) {
+    const result = {
+      packageName: '',
+      sensitiveApis: [],
+      strings: new Set(),
+      classes: new Map(),
+      libraries: new Map(),
+    }
+
+    try {
+      // Find all .jimple files
+      const jimpleFiles = []
+      function walkDir(dir) {
+        const files = readdirSync(dir, { withFileTypes: true })
+        for (const file of files) {
+          const fullPath = join(dir, file.name)
+          if (file.isDirectory()) {
+            walkDir(fullPath)
+          } else if (file.name.endsWith('.jimple')) {
+            jimpleFiles.push(fullPath)
+          }
+        }
+      }
+      walkDir(folderPath)
+
+      if (jimpleFiles.length === 0) {
+        throw new Error(`No .jimple files found in ${folderPath}`)
+      }
+
+      // Parse each jimple file
+      for (const filePath of jimpleFiles) {
+        const content = readFileSync(filePath, 'utf-8')
+        const className = filePath.split('/').pop().replace('.jimple', '')
+
+        // Extract package from content
+        const pkgMatch = content.match(/^public class\s+(\S+)/m)
+        const fullClassName = pkgMatch ? pkgMatch[1] : className
+        const parts = fullClassName.split('.')
+        const pkgPart = parts.slice(0, -1).join('.')
+        if (pkgPart && !result.packageName) {
+          result.packageName = pkgPart
+        }
+
+        // Store class info
+        result.classes.set(fullClassName, { methods: [] })
+
+        // Extract method invocations (sensitive APIs)
+        const invokeMatches = content.match(/invoke[a-z]* \$[0-9]+ = <([^>]+)>/gi) || []
+        for (const match of invokeMatches) {
+          const sig = match
+          // Check against sensitive API patterns
+          for (const [category, patterns] of Object.entries(SENSITIVE_API_PATTERNS)) {
+            for (const pattern of patterns) {
+              if (pattern.test(sig)) {
+                result.sensitiveApis.push({
+                  category,
+                  api: sig,
+                  calledFrom: fullClassName,
+                  signature: sig
+                })
+                break
+              }
+            }
+          }
+        }
+
+        // Extract string constants
+        const stringMatches = content.match(/"([^"]{6,})"/g) || []
+        for (const str of stringMatches) {
+          const value = str.slice(1, -1) // Remove quotes
+
+          // Detect string type
+          let type = 'Other'
+          for (const [strType, pattern] of Object.entries(STRING_PATTERNS)) {
+            if (pattern.test(value)) {
+              type = strType
+              break
+            }
+          }
+          result.strings.add(JSON.stringify({ type, value, foundIn: fullClassName }))
+        }
+
+        // Detect libraries
+        for (const lib of LIBRARY_PATTERNS) {
+          if (lib.pattern.test(fullClassName)) {
+            const existing = result.libraries.get(lib.name) || { count: 0 }
+            existing.count++
+            result.libraries.set(lib.name, existing)
+          }
+        }
+      }
+
+      // Convert to arrays and deduplicate
+      const strings = [...result.strings].map(s => JSON.parse(s))
+      const uniqueStrings = Array.from(new Map(strings.map(s => [s.value, s])).values())
+
+      const libraries = Array.from(result.libraries.entries()).map(([name, data]) => ({
+        name,
+        packagePattern: name.toLowerCase(),
+        confidence: 'medium',
+        classCount: data.count
+      }))
+
+      // Deduplicate sensitive APIs
+      const uniqueApis = Array.from(new Map(
+        result.sensitiveApis.map(api => [api.signature + api.calledFrom, api])
+      ).values())
+
+      return {
+        packageName: result.packageName || 'unknown',
+        sensitiveApis: uniqueApis,
+        strings: uniqueStrings,
+        classes: Array.from(result.classes.entries()).map(([name]) => ({
+          name,
+          packageName: result.packageName,
+          superClass: 'java.lang.Object',
+          interfaces: [],
+          methods: [],
+          isActivity: false,
+          isService: false,
+          isReceiver: false
+        })),
+        libraries,
+        analysisTimeMs: 0
+      }
+    } catch (e) {
+      throw new Error(`Failed to parse jimple folder: ${e.message}`)
+    }
+  }
+
+  // POST /security/jimple/analyze — analyze jimple files from a folder
+  if (req.method === 'POST' && url.pathname === '/security/jimple/analyze') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      let { folderPath } = body
+
+      // Expand ~ in path
+      folderPath = expandPath(folderPath)
+
+      // Validate folder exists
+      if (!existsSync(folderPath)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Folder not found: ${folderPath}` }))
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      const sendSSE = (type, data) => {
+        const json = JSON.stringify({ type, ...data })
+        res.write(`data: ${json}\n\n`)
+      }
+
+      sendSSE('progress', { message: 'Analyzing jimple files...' })
+
+      // Analyze jimple files
+      setTimeout(() => {
+        try {
+          const startTime = Date.now()
+          const result = parseJimpleFolder(folderPath)
+          result.analysisTimeMs = Date.now() - startTime
+
+          sendSSE('result', { data: result })
+          sendSSE('done', {})
+          res.end()
+        } catch (e) {
+          sendSSE('error', { message: e.message })
+          sendSSE('done', {})
+          res.end()
+        }
+      }, 100)
+
+      req.on('close', () => { /* request closed */ })
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: e.message }))

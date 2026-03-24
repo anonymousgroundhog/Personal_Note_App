@@ -38,7 +38,7 @@ export interface LibraryInfo {
 }
 
 export interface AnalysisResult {
-  apkName: string
+  apkName?: string
   packageName: string
   targetSdkVersion?: number
   minSdkVersion?: number
