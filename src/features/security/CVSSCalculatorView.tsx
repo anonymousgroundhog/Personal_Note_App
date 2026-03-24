@@ -196,9 +196,36 @@ export default function CVSSCalculatorView() {
   }
 
   const scoreTooltips = {
-    'Base Score': 'Calculated from 8 core metrics (AV, AT, PR, UI, S, C, I, A). Represents the inherent severity of the vulnerability without considering context.',
-    'Temporal Score': 'Adjusts the base score based on changing conditions: exploit availability, patch status, and confidence in the vulnerability report. May decrease over time as patches become available.',
-    'Environmental Score': 'Further adjusts the temporal score based on how the vulnerability affects your specific environment, including data sensitivity and mitigation measures.'
+    'Base Score': `Calculated from 8 core metrics representing the inherent severity of the vulnerability:
+• Attack Vector (AV): How it's accessed (Network, Adjacent, Local, Physical)
+• Attack Complexity (AT): How difficult to exploit (Low vs High)
+• Privileges Required (PR): What access level needed (None, Low, High)
+• User Interaction (UI): Does user action trigger it? (None vs Required)
+• Scope (S): Can it affect other systems? (Unchanged vs Changed)
+• Confidentiality (C): Can data be exposed? (High, Low, None)
+• Integrity (I): Can data be modified? (High, Low, None)
+• Availability (A): Can service be disrupted? (High, Low, None)
+
+This score is independent of context and represents pure technical severity.`,
+    'Temporal Score': `Adjusts the base score based on real-world conditions that change over time:
+• Exploit Code Maturity: How readily available is working exploit code?
+  - Unproven (no code) → Functional (working code) → Official
+• Remediation Level: Is a patch available?
+  - Unavailable → Workaround → Temporary fix → Official fix
+• Report Confidence: How certain is this vulnerability confirmed?
+  - Unconfirmed → Reasonable → Confirmed
+
+Temporal scores typically decrease as vendors release patches. Use when exploit code becomes public or patches are available.`,
+    'Environmental Score': `Customizes the score for your specific organization's environment:
+• Requirement Levels: How critical are these impact types to you?
+  - Confidentiality Requirement (CR): Data sensitivity (Low/Medium/High)
+  - Integrity Requirement (IR): Data accuracy importance (Low/Medium/High)
+  - Availability Requirement (AR): Uptime criticality (Low/Medium/High)
+• Modified Metrics: Adjust base metrics if your environment differs
+  - Modified Attack Vector, Complexity, Privileges, User Interaction
+  - Modified Scope, Confidentiality, Integrity, Availability
+
+Use this when the vulnerability's impact differs significantly from a typical system or when your organization has specific security requirements.`
   }
 
   const ScoreDisplay = ({ label, score, severity }: { label: string; score?: number; severity?: string }) => {
@@ -212,14 +239,15 @@ export default function CVSSCalculatorView() {
         onMouseLeave={() => setHoveredScore(null)}
       >
         {hoveredScore === label && (
-          <div className="absolute bottom-full mb-2 left-0 right-0 bg-gray-900 dark:bg-gray-800 text-white dark:text-gray-100 text-xs rounded p-2 z-10 whitespace-normal">
-            {scoreTooltips[tooltipKey]}
-            <div className="absolute top-full left-2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900 dark:border-t-gray-800"></div>
+          <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-gray-900 dark:bg-gray-800 text-white dark:text-gray-100 text-xs rounded p-3 z-50 whitespace-pre-wrap max-w-sm shadow-lg border border-gray-700 dark:border-gray-600">
+            <div className="font-semibold mb-2 text-blue-300">{label}</div>
+            <div className="leading-relaxed text-gray-200">{scoreTooltips[tooltipKey]}</div>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-900 dark:border-t-gray-800"></div>
           </div>
         )}
         <div className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1 flex items-center gap-1">
           {label}
-          <HelpCircle size={12} className="opacity-50" />
+          <HelpCircle size={12} className="opacity-50 hover:opacity-100 transition-opacity" />
         </div>
         <div className="flex items-baseline gap-3">
           <div className={`text-3xl font-bold ${colors.text}`}>{score.toFixed(1)}</div>
