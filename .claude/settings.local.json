@@ -68,7 +68,9 @@
       "Bash(find /home/spsand1/SootUp/sootup.java.core/target/test-classes/sootup/java/core/jimple -name *.jimple)",
       "Bash(netstat -tlnp)",
       "Bash(/tmp/test_manifest/AndroidManifest.xml:*)",
-      "Bash(mkdir -p /tmp/test_manifest)"
+      "Bash(mkdir -p /tmp/test_manifest)",
+      "Bash(ls:*)",
+      "Bash(grep:*)"
     ]
   }
 }

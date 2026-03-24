@@ -3,8 +3,10 @@ import JimpleAnalyzerView from './JimpleAnalyzerView'
 import AndroidManifestAnalyzerView from './AndroidManifestAnalyzerView'
 import CVSSCalculatorView from './CVSSCalculatorView'
 import MitreAttackNavigatorView from './MitreAttackNavigatorView'
+import PentestReportView from './PentestReportView'
+import IncidentResponseTemplateView from './IncidentResponseTemplateView'
 
-type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator'
+type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response'
 
 interface Tool {
   id: SecurityTool
@@ -16,7 +18,9 @@ const TOOLS: Tool[] = [
   { id: 'jimple-analyzer', label: 'Jimple Analyzer', icon: '🔍' },
   { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' },
   { id: 'cvss-calculator', label: 'CVSS Calculator', icon: '🎯' },
-  { id: 'mitre-navigator', label: 'MITRE Navigator', icon: '🎯' }
+  { id: 'mitre-navigator', label: 'MITRE Navigator', icon: '🎯' },
+  { id: 'pentest-report', label: 'Pentest Report', icon: '📄' },
+  { id: 'incident-response', label: 'Incident Response', icon: '🚨' }
 ]
 
 export default function SecurityView() {
@@ -50,6 +54,8 @@ export default function SecurityView() {
         {activeTool === 'manifest-analyzer' && <AndroidManifestAnalyzerView />}
         {activeTool === 'cvss-calculator' && <CVSSCalculatorView />}
         {activeTool === 'mitre-navigator' && <MitreAttackNavigatorView />}
+        {activeTool === 'pentest-report' && <PentestReportView />}
+        {activeTool === 'incident-response' && <IncidentResponseTemplateView />}
       </div>
     </div>
   )

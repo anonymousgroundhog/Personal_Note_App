@@ -101,12 +101,61 @@ function remarkWikilinks() {
   }
 }
 
+// Rehype plugin to add IDs to headings based on their text content
+function rehypeHeadingIds() {
+  return (tree: any) => {
+    const visit = (node: any) => {
+      // Add IDs to headings (h1-h6)
+      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(node.tagName)) {
+        if (!node.properties?.id) {
+          // Extract text content from heading
+          const textContent = getTextContent(node)
+          if (textContent) {
+            // Generate ID: lowercase, replace spaces with hyphens, remove special chars
+            const id = textContent
+              .toLowerCase()
+              .replace(/\{#[^}]+\}/g, '') // Remove {#id} syntax if present
+              .trim()
+              .replace(/\s+/g, '-')
+              .replace(/[^a-z0-9\-]/g, '')
+              .replace(/-+/g, '-')
+              .replace(/^-+|-+$/g, '')
+
+            if (id) {
+              node.properties = node.properties || {}
+              node.properties.id = id
+            }
+          }
+        }
+      }
+
+      if (node.children && Array.isArray(node.children)) {
+        node.children.forEach(visit)
+      }
+    }
+
+    visit(tree)
+  }
+}
+
+// Helper to extract text content from a node
+function getTextContent(node: any): string {
+  if (node.type === 'text') {
+    return node.value
+  }
+  if (node.children && Array.isArray(node.children)) {
+    return node.children.map(getTextContent).join('')
+  }
+  return ''
+}
+
 export function buildProcessor(onWikiLink?: (name: string) => void) {
   return unified()
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkWikilinks)
     .use(remarkRehype, { allowDangerousHtml: false })
+    .use(rehypeHeadingIds)
     .use(rehypeReact, {
       createElement,
       Fragment,
@@ -126,7 +175,12 @@ export function buildProcessor(onWikiLink?: (name: string) => void) {
               ...props,
             }, children)
           }
-          return React.createElement('a', { href, target: '_blank', rel: 'noreferrer', ...props }, children)
+          // Internal anchor links should not open in new tab
+          const isInternalAnchor = href?.startsWith('#')
+          const linkProps = isInternalAnchor
+            ? { href, ...props }
+            : { href, target: '_blank', rel: 'noreferrer', ...props }
+          return React.createElement('a', linkProps, children)
         },
         pre: ({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) => {
           // Intercept mermaid fenced code blocks

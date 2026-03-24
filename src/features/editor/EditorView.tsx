@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import { Eye, Edit3, Plus, RefreshCw, Tag, Search, FileText, Clock } from 'lucide-react'
+import ReactDOM from 'react-dom/client'
+import { Eye, Edit3, Plus, RefreshCw, Tag, Search, FileText, Clock, Download } from 'lucide-react'
 import MarkdownEditor from './MarkdownEditor'
 import MarkdownPreview from './MarkdownPreview'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
-import { parseFrontmatter } from '../../lib/markdown/processor'
+import { parseFrontmatter, buildProcessor } from '../../lib/markdown/processor'
 import { todayIso } from '../../lib/fs/pathUtils'
+import { exportNoteToPdf, saveToFileSystem } from '../../lib/pdf/export'
 
 type EditorMode = 'edit' | 'preview' | 'split'
 
@@ -19,6 +21,7 @@ export default function EditorView() {
   const [showTagPanel, setShowTagPanel] = useState(false)
   const [showTagSuggestions, setShowTagSuggestions] = useState(false)
   const [tagSuggestionIdx, setTagSuggestionIdx] = useState(0)
+  const [isExporting, setIsExporting] = useState(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -85,6 +88,43 @@ export default function EditorView() {
     }).join('\n')
     handleChange(`---\n${yaml}\n---\n\n${body}`)
   }, [activeNotePath, content, handleChange])
+
+  const handleExportPdf = useCallback(async () => {
+    if (!activeNotePath || !content) return
+    setIsExporting(true)
+    try {
+      const noteName = activeNotePath.split('/').pop()?.replace(/\.md$/, '') || 'note'
+
+      // Create a temporary container to render the markdown
+      const tempContainer = document.createElement('div')
+      tempContainer.style.display = 'none'
+      document.body.appendChild(tempContainer)
+
+      try {
+        // Render the MarkdownPreview component to the temp container
+        const root = ReactDOM.createRoot(tempContainer)
+        root.render(<MarkdownPreview content={content} />)
+
+        // Wait a moment for React to render
+        await new Promise(resolve => setTimeout(resolve, 100))
+
+        // Extract the rendered HTML
+        const htmlContent = tempContainer.innerHTML
+
+        // Export to PDF with file system save dialog
+        await exportNoteToPdf(noteName, htmlContent, saveToFileSystem)
+
+        root.unmount()
+      } finally {
+        document.body.removeChild(tempContainer)
+      }
+    } catch (error) {
+      console.error('Failed to export PDF:', error)
+      alert('Failed to export PDF. ' + (error instanceof Error ? error.message : 'Unknown error'))
+    } finally {
+      setIsExporting(false)
+    }
+  }, [activeNotePath, content])
 
   const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (!showTagSuggestions || filteredTagSuggestions.length === 0) {
@@ -284,6 +324,14 @@ export default function EditorView() {
             title="New note"
           >
             <Plus size={15} />
+          </button>
+          <button
+            onClick={handleExportPdf}
+            disabled={isExporting}
+            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Export as PDF"
+          >
+            <Download size={15} />
           </button>
         </div>
       </div>
