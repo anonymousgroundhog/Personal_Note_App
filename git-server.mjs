@@ -1207,6 +1207,197 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // ── AndroidManifest.xml Analysis ────────────────────────────────────────
+  function parseAndroidManifest(filePath) {
+    try {
+      const content = readFileSync(filePath, 'utf-8')
+
+      const result = {
+        packageName: '',
+        versionCode: undefined,
+        versionName: undefined,
+        minSdkVersion: undefined,
+        targetSdkVersion: undefined,
+        activities: [],
+        services: [],
+        receivers: [],
+        providers: [],
+        permissions: [],
+        features: [],
+        intentFilters: {}
+      }
+
+      // Extract manifest attributes
+      const manifestMatch = content.match(/<manifest[^>]*>/i)
+      if (manifestMatch) {
+        const pkgMatch = manifestMatch[0].match(/package="([^"]+)"/i)
+        if (pkgMatch) result.packageName = pkgMatch[1]
+
+        const vCodeMatch = manifestMatch[0].match(/android:versionCode="([^"]+)"/i)
+        if (vCodeMatch) result.versionCode = vCodeMatch[1]
+
+        const vNameMatch = manifestMatch[0].match(/android:versionName="([^"]+)"/i)
+        if (vNameMatch) result.versionName = vNameMatch[1]
+      }
+
+      // Extract uses-sdk
+      const usesSDKMatch = content.match(/<uses-sdk[^>]*>/i)
+      if (usesSDKMatch) {
+        const minMatch = usesSDKMatch[0].match(/android:minSdkVersion="(\d+)"/i)
+        if (minMatch) result.minSdkVersion = minMatch[1]
+
+        const targetMatch = usesSDKMatch[0].match(/android:targetSdkVersion="(\d+)"/i)
+        if (targetMatch) result.targetSdkVersion = targetMatch[1]
+      }
+
+      // Extract activities
+      const activityMatches = content.match(/<activity[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of activityMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.activities.push(nameMatch[1])
+      }
+
+      // Extract services
+      const serviceMatches = content.match(/<service[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of serviceMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.services.push(nameMatch[1])
+      }
+
+      // Extract receivers
+      const receiverMatches = content.match(/<receiver[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of receiverMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.receivers.push(nameMatch[1])
+      }
+
+      // Extract providers
+      const providerMatches = content.match(/<provider[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of providerMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.providers.push(nameMatch[1])
+      }
+
+      // Extract permissions
+      const permMatches = content.match(/<uses-permission[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of permMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.permissions.push(nameMatch[1])
+      }
+
+      // Extract features
+      const featureMatches = content.match(/<uses-feature[^>]*android:name="([^"]+)"/gi) || []
+      for (const match of featureMatches) {
+        const nameMatch = match.match(/android:name="([^"]+)"/i)
+        if (nameMatch) result.features.push(nameMatch[1])
+      }
+
+      // Extract intent filters
+      const intentMatches = content.match(/<intent-filter>[\s\S]*?<\/intent-filter>/gi) || []
+      let componentName = ''
+      const lines = content.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        if (/<(activity|service|receiver|provider)[^>]*android:name="([^"]+)"/i.test(line)) {
+          const match = line.match(/android:name="([^"]+)"/i)
+          if (match) componentName = match[1]
+        }
+        if (/<intent-filter>/i.test(line)) {
+          const intentEnd = content.indexOf('</intent-filter>', content.indexOf('<intent-filter>', i))
+          const intentSection = content.substring(content.indexOf('<intent-filter>', i), intentEnd + 16)
+          const actions = (intentSection.match(/<action[^>]*android:name="([^"]+)"/gi) || [])
+            .map(m => m.match(/android:name="([^"]+)"/i)[1])
+          if (actions.length > 0 && componentName) {
+            result.intentFilters[componentName] = actions
+          }
+        }
+      }
+
+      // Identify dangerous permissions
+      const DANGEROUS_PERMS = [
+        'android.permission.CAMERA',
+        'android.permission.RECORD_AUDIO',
+        'android.permission.ACCESS_FINE_LOCATION',
+        'android.permission.ACCESS_COARSE_LOCATION',
+        'android.permission.READ_CONTACTS',
+        'android.permission.WRITE_CONTACTS',
+        'android.permission.READ_CALENDAR',
+        'android.permission.WRITE_CALENDAR',
+        'android.permission.READ_CALL_LOG',
+        'android.permission.WRITE_CALL_LOG',
+        'android.permission.READ_SMS',
+        'android.permission.SEND_SMS',
+        'android.permission.RECEIVE_SMS',
+        'android.permission.READ_PHONE_STATE',
+        'android.permission.CALL_PHONE',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.GET_ACCOUNTS',
+      ]
+
+      result.dangerousPermissions = result.permissions.filter(p => DANGEROUS_PERMS.includes(p))
+
+      return result
+    } catch (e) {
+      throw new Error(`Failed to parse AndroidManifest.xml: ${e.message}`)
+    }
+  }
+
+  // POST /security/manifest/analyze — analyze AndroidManifest.xml file
+  if (req.method === 'POST' && url.pathname === '/security/manifest/analyze') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      let { filePath } = body
+
+      // Expand ~ in path
+      filePath = expandPath(filePath)
+
+      // Validate file exists
+      if (!existsSync(filePath)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `File not found: ${filePath}` }))
+        return
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      const sendSSE = (type, data) => {
+        const json = JSON.stringify({ type, ...data })
+        res.write(`data: ${json}\n\n`)
+      }
+
+      sendSSE('progress', { message: 'Analyzing AndroidManifest.xml...' })
+
+      // Analyze manifest
+      setTimeout(() => {
+        try {
+          const startTime = Date.now()
+          const result = parseAndroidManifest(filePath)
+          result.analysisTimeMs = Date.now() - startTime
+
+          sendSSE('result', { data: result })
+          sendSSE('done', {})
+          res.end()
+        } catch (e) {
+          sendSSE('error', { message: e.message })
+          sendSSE('done', {})
+          res.end()
+        }
+      }, 100)
+
+      req.on('close', () => { /* request closed */ })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
   // GET /security/install/list — list available Soot versions and Android API levels
   if (req.method === 'GET' && url.pathname === '/security/install/list') {
     setCors(res)

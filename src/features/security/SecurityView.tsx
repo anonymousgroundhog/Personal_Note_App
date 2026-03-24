@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import JimpleAnalyzerView from './JimpleAnalyzerView'
+import AndroidManifestAnalyzerView from './AndroidManifestAnalyzerView'
 
-type SecurityTool = 'jimple-analyzer'
+type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer'
 
 interface Tool {
   id: SecurityTool
@@ -10,7 +11,8 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { id: 'jimple-analyzer', label: 'Jimple Analyzer', icon: '🔍' }
+  { id: 'jimple-analyzer', label: 'Jimple Analyzer', icon: '🔍' },
+  { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' }
 ]
 
 export default function SecurityView() {
@@ -41,6 +43,7 @@ export default function SecurityView() {
       {/* Tool content area */}
       <div className="flex-1 overflow-hidden">
         {activeTool === 'jimple-analyzer' && <JimpleAnalyzerView />}
+        {activeTool === 'manifest-analyzer' && <AndroidManifestAnalyzerView />}
       </div>
     </div>
   )
