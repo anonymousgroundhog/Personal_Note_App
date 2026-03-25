@@ -5,8 +5,11 @@ import CVSSCalculatorView from './CVSSCalculatorView'
 import MitreAttackNavigatorView from './MitreAttackNavigatorView'
 import PentestReportView from './PentestReportView'
 import IncidentResponseTemplateView from './IncidentResponseTemplateView'
+import OsintView from './OsintView'
+import PcapAnalyzerView from './PcapAnalyzerView'
+import LiveCaptureView from './LiveCaptureView'
 
-type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response'
+type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response' | 'osint' | 'pcap-analyzer' | 'live-capture'
 
 interface Tool {
   id: SecurityTool
@@ -15,16 +18,19 @@ interface Tool {
 }
 
 const TOOLS: Tool[] = [
-  { id: 'jimple-analyzer', label: 'Jimple Analyzer', icon: '🔍' },
+  { id: 'osint',             label: 'OSINT',            icon: '🕵️' },
+  { id: 'pcap-analyzer',    label: 'PCAP Analyzer',    icon: '📡' },
+  { id: 'live-capture',     label: 'Live Capture',     icon: '🔴' },
+  { id: 'jimple-analyzer',   label: 'Jimple Analyzer',  icon: '🔍' },
   { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' },
-  { id: 'cvss-calculator', label: 'CVSS Calculator', icon: '🎯' },
-  { id: 'mitre-navigator', label: 'MITRE Navigator', icon: '🎯' },
-  { id: 'pentest-report', label: 'Pentest Report', icon: '📄' },
-  { id: 'incident-response', label: 'Incident Response', icon: '🚨' }
+  { id: 'cvss-calculator',   label: 'CVSS Calculator',  icon: '🎯' },
+  { id: 'mitre-navigator',   label: 'MITRE Navigator',  icon: '🗺️' },
+  { id: 'pentest-report',    label: 'Pentest Report',   icon: '📄' },
+  { id: 'incident-response', label: 'Incident Response', icon: '🚨' },
 ]
 
 export default function SecurityView() {
-  const [activeTool, setActiveTool] = useState<SecurityTool>('jimple-analyzer')
+  const [activeTool, setActiveTool] = useState<SecurityTool>('osint')
 
   return (
     <div className="flex flex-col h-full w-full bg-white dark:bg-surface-900 overflow-hidden">
@@ -50,11 +56,14 @@ export default function SecurityView() {
 
       {/* Tool content area */}
       <div className="flex-1 overflow-hidden">
-        {activeTool === 'jimple-analyzer' && <JimpleAnalyzerView />}
+        {activeTool === 'osint'             && <OsintView />}
+        {activeTool === 'pcap-analyzer'    && <PcapAnalyzerView />}
+        {activeTool === 'live-capture'     && <LiveCaptureView />}
+        {activeTool === 'jimple-analyzer'   && <JimpleAnalyzerView />}
         {activeTool === 'manifest-analyzer' && <AndroidManifestAnalyzerView />}
-        {activeTool === 'cvss-calculator' && <CVSSCalculatorView />}
-        {activeTool === 'mitre-navigator' && <MitreAttackNavigatorView />}
-        {activeTool === 'pentest-report' && <PentestReportView />}
+        {activeTool === 'cvss-calculator'   && <CVSSCalculatorView />}
+        {activeTool === 'mitre-navigator'   && <MitreAttackNavigatorView />}
+        {activeTool === 'pentest-report'    && <PentestReportView />}
         {activeTool === 'incident-response' && <IncidentResponseTemplateView />}
       </div>
     </div>

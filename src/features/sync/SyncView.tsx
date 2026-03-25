@@ -2,11 +2,11 @@ import React, { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Github, RefreshCw, Upload, Download, CheckCircle, XCircle,
   AlertTriangle, Info, GitBranch, Plus, Loader, Terminal,
-  ChevronDown, GitMerge, FolderGit2, ExternalLink,
+  ChevronDown, GitMerge, FolderGit2, ExternalLink, FolderOpen,
 } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { useVaultStore } from '../../stores/vaultStore'
-import { git, gitStream, getGitCaps, isServerReachable } from '../../lib/github/gitClient'
+import { git, gitStream, getGitCaps, isServerReachable, browseDirectory } from '../../lib/github/gitClient'
 import type { GitCaps } from '../../lib/github/gitClient'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -36,6 +36,21 @@ export default function SyncView() {
   // Vault path (needed by git CLI — File System Access API hides it)
   const [vaultPath, setVaultPath] = useState(loadVaultPath)
   const [vaultPathInput, setVaultPathInput] = useState(loadVaultPath)
+
+  // Auto-set vault path when vault is opened and stored path matches vault name
+  useEffect(() => {
+    if (!rootHandle) return
+    const stored = loadVaultPath()
+    const storedBasename = stored.replace(/\\/g, '/').split('/').filter(Boolean).pop() ?? ''
+    if (stored && storedBasename === rootHandle.name) {
+      // Stored path matches the open vault — use it automatically
+      setVaultPath(stored)
+      setVaultPathInput(stored)
+    } else if (!stored) {
+      // No path stored yet — pre-fill input with vault name as a hint
+      setVaultPathInput(rootHandle.name)
+    }
+  }, [rootHandle])
 
   // Repo state
   const [isRepo, setIsRepo] = useState<boolean | null>(null)
@@ -122,6 +137,12 @@ export default function SyncView() {
     }
     setStatus('idle')
   }, [vaultPath, serverUp, addLog, setStatus])
+
+  // Auto-detect repo when server comes up and vault path is already known
+  useEffect(() => {
+    if (serverUp && vaultPath) detectRepo(vaultPath)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverUp, vaultPath])
 
   // ── init new repo ───────────────────────────────────────────────────────────
 
@@ -283,12 +304,26 @@ export default function SyncView() {
 
   // ── path confirmation ───────────────────────────────────────────────────────
 
-  const confirmVaultPath = () => {
-    const p = vaultPathInput.trim()
+  const confirmVaultPath = (p = vaultPathInput.trim()) => {
+    if (!p) return
     setVaultPath(p)
+    setVaultPathInput(p)
     saveVaultPath(p)
     clearLog()
     detectRepo(p)
+  }
+
+  const [isBrowsing, setIsBrowsing] = useState(false)
+  const handleBrowse = async () => {
+    setIsBrowsing(true)
+    try {
+      const selected = await browseDirectory(vaultPath || undefined)
+      if (selected) confirmVaultPath(selected)
+    } catch (e) {
+      addLog('error', `Browse failed: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setIsBrowsing(false)
+    }
   }
 
   // ── styles ──────────────────────────────────────────────────────────────────
@@ -385,10 +420,7 @@ export default function SyncView() {
                   <span className="text-xs font-normal text-gray-400">(vault: {rootHandle.name})</span>
                 )}
               </h2>
-              <p className="text-xs text-gray-400">
-                The File System API doesn't expose the full path. Enter the absolute path to your vault folder so git commands can run against it.
-              </p>
-              <div className="flex gap-2">
+              <div className="flex gap-2 items-center">
                 <input
                   value={vaultPathInput}
                   onChange={e => setVaultPathInput(e.target.value)}
@@ -396,9 +428,11 @@ export default function SyncView() {
                   placeholder="/home/you/my-notes  or  C:\Users\You\my-notes"
                   className={inputCls}
                 />
-                <button onClick={confirmVaultPath}
-                  className="px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0">
-                  Set
+                <button onClick={handleBrowse} disabled={isBrowsing}
+                  title="Browse for vault folder"
+                  className="flex items-center gap-1.5 px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0 disabled:opacity-50">
+                  {isBrowsing ? <Loader size={14} className="animate-spin" /> : <FolderOpen size={14} />}
+                  Browse
                 </button>
               </div>
               {vaultPath && (

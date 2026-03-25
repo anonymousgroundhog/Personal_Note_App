@@ -73,7 +73,18 @@
       "Bash(grep:*)",
       "WebFetch(domain:discord.com)",
       "WebFetch(domain:docs.discord.com)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App/src -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(python3 -c \"import scapy; print\\(''''scapy ok''''\\)\")",
+      "Bash(python3 -c \"import dpkt; print\\(''''dpkt ok''''\\)\")",
+      "Bash(python3 -c \"import pyshark; print\\(''''pyshark ok''''\\)\")",
+      "Bash(pip3 list:*)",
+      "Bash(apt list:*)",
+      "Bash(python3 -c \"from scapy.all import rdpcap, IP, TCP, UDP, DNS, ARP, ICMP, Raw; print\\(''all imports ok''\\)\")",
+      "Bash(ip link:*)",
+      "Bash(sudo -n tcpdump --version)",
+      "Bash(getcap /usr/bin/tcpdump)",
+      "Bash(sudo setcap:*)"
     ]
   }
 }

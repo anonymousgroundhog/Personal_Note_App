@@ -19,7 +19,7 @@ import { createServer } from 'http'
 import https from 'https'
 import { spawn, execFile, spawnSync, execFileSync } from 'child_process'
 import { promisify } from 'util'
-import { existsSync, writeFileSync, mkdirSync, readFileSync, createWriteStream, readdirSync } from 'fs'
+import { existsSync, writeFileSync, mkdirSync, readFileSync, createWriteStream, readdirSync, mkdtempSync } from 'fs'
 import { resolve, join } from 'path'
 import { tmpdir, homedir } from 'os'
 import { randomBytes } from 'crypto'
@@ -128,7 +128,7 @@ function getJdkUrl() {
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Filename')
 }
 
 // ── Capability detection ───────────────────────────────────────────────────────
@@ -193,6 +193,40 @@ function runGit(cwd, args, onData, onEnd) {
   return proc
 }
 
+// ── Native folder picker ───────────────────────────────────────────────────────
+async function browseDirectory(startPath) {
+  const platform = process.platform
+  return new Promise((resolve, reject) => {
+    let cmd, args
+    if (platform === 'darwin') {
+      cmd = 'osascript'
+      args = ['-e', `POSIX path of (choose folder${startPath ? ` default location POSIX file "${startPath}"` : ''})`]
+    } else if (platform === 'win32') {
+      cmd = 'powershell'
+      args = [
+        '-NoProfile', '-Command',
+        `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; ${startPath ? `$d.SelectedPath = '${startPath}'; ` : ''}if ($d.ShowDialog() -eq 'OK') { $d.SelectedPath } else { '' }`
+      ]
+    } else {
+      // Linux — prefer zenity, fall back to kdialog
+      if (spawnSync('which', ['zenity'], { stdio: 'ignore' }).status === 0) {
+        cmd = 'zenity'
+        args = ['--file-selection', '--directory', '--title=Select vault folder', ...(startPath ? [`--filename=${startPath}/`] : [])]
+      } else if (spawnSync('which', ['kdialog'], { stdio: 'ignore' }).status === 0) {
+        cmd = 'kdialog'
+        args = ['--getexistingdirectory', startPath || homedir()]
+      } else {
+        return reject(new Error('No native folder picker available (install zenity or kdialog)'))
+      }
+    }
+    execFile(cmd, args, { timeout: 60000 }, (err, stdout, stderr) => {
+      const path = stdout.trim().replace(/\/$/, '') // strip trailing slash
+      if (err && !path) return reject(new Error(stderr.trim() || 'Folder picker cancelled or failed'))
+      resolve(path)
+    })
+  })
+}
+
 // ── HTTP server ────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   setCors(res)
@@ -205,6 +239,20 @@ const server = createServer(async (req, res) => {
     const caps = await detectCaps()
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(caps))
+    return
+  }
+
+  // GET /browse/directory?start=<path>  — open a native folder picker
+  if (req.method === 'GET' && url.pathname === '/browse/directory') {
+    try {
+      const startPath = url.searchParams.get('start') || ''
+      const selected = await browseDirectory(startPath)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: selected }))
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
     return
   }
 
@@ -709,6 +757,1128 @@ const server = createServer(async (req, res) => {
         <p style="margin-top:1.25rem"><a href="${target}" target="_top" style="color:#3b82f6">Open in browser instead ↗</a></p>
       </body></html>`)
     }
+    return
+  }
+
+  // ── OSINT Endpoints ───────────────────────────────────────────────────────────
+
+  // POST /osint/domain  { target: string }
+  // Collects WHOIS, DNS records (A/MX/NS/TXT/CNAME), reverse DNS, IP geolocation
+  if (req.method === 'POST' && url.pathname === '/osint/domain') {
+    let body
+    try { body = await parseBody(req) } catch { res.writeHead(400); res.end(JSON.stringify({ error: 'bad body' })); return }
+    const target = (body.target || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+    if (!target) { res.writeHead(400); res.end(JSON.stringify({ error: 'target required' })); return }
+
+    const run = (cmd, args) => new Promise(resolve => {
+      execFile(cmd, args, { timeout: 10000, maxBuffer: 1024 * 512 }, (err, stdout, stderr) => {
+        resolve({ out: stdout || '', err: stderr || '', ok: !err || stdout.length > 0 })
+      })
+    })
+
+    const results = {}
+
+    // WHOIS
+    try {
+      const w = await run('whois', [target])
+      results.whois = w.out.trim() || w.err.trim() || 'No WHOIS data'
+    } catch { results.whois = 'whois not available' }
+
+    // DNS — dig for multiple record types
+    for (const type of ['A', 'AAAA', 'MX', 'NS', 'TXT', 'CNAME', 'SOA']) {
+      try {
+        const d = await run('dig', ['+short', '+timeout=5', type, target])
+        results[`dns_${type}`] = d.out.trim() || ''
+      } catch {
+        try {
+          const n = await run('nslookup', [`-type=${type}`, target])
+          results[`dns_${type}`] = n.out.trim() || ''
+        } catch { results[`dns_${type}`] = '' }
+      }
+    }
+
+    // IP geolocation via ipapi.co (no key required, public API)
+    const aRecords = (results.dns_A || '').split('\n').map(s => s.trim()).filter(Boolean)
+    results.geoip = []
+    for (const ip of aRecords.slice(0, 3)) {
+      try {
+        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`, { signal: AbortSignal.timeout(6000) })
+        if (geoRes.ok) {
+          const geo = await geoRes.json()
+          results.geoip.push({ ip, city: geo.city, region: geo.region, country: geo.country_name, org: geo.org, asn: geo.asn })
+        }
+      } catch { /* skip */ }
+    }
+
+    // Reverse DNS on first A record
+    if (aRecords[0]) {
+      try {
+        const r = await run('dig', ['+short', '-x', aRecords[0]])
+        results.rdns = r.out.trim() || ''
+      } catch { results.rdns = '' }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ target, ...results }))
+    return
+  }
+
+  // POST /osint/crtsh  { domain: string }
+  // Certificate transparency search via crt.sh — returns subdomains
+  if (req.method === 'POST' && url.pathname === '/osint/crtsh') {
+    let body
+    try { body = await parseBody(req) } catch { res.writeHead(400); res.end(JSON.stringify({ error: 'bad body' })); return }
+    const domain = (body.domain || '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+    if (!domain) { res.writeHead(400); res.end(JSON.stringify({ error: 'domain required' })); return }
+    try {
+      const apiRes = await fetch(`https://crt.sh/?q=%25.${encodeURIComponent(domain)}&output=json`, {
+        headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!apiRes.ok) throw new Error(`crt.sh returned ${apiRes.status}`)
+      const data = await apiRes.json()
+      // Deduplicate and clean subdomain names
+      const names = new Set()
+      for (const entry of data) {
+        for (const name of (entry.name_value || '').split('\n')) {
+          const clean = name.trim().toLowerCase().replace(/^\*\./, '')
+          if (clean && clean.endsWith(domain)) names.add(clean)
+        }
+      }
+      const subdomains = [...names].sort()
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ domain, subdomains, count: subdomains.length }))
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `crt.sh lookup failed: ${e.message}` }))
+    }
+    return
+  }
+
+  // POST /osint/username  { username: string }
+  // Check a username against a list of popular platforms via HTTP HEAD requests
+  if (req.method === 'POST' && url.pathname === '/osint/username') {
+    let body
+    try { body = await parseBody(req) } catch { res.writeHead(400); res.end(JSON.stringify({ error: 'bad body' })); return }
+    const username = (body.username || '').trim()
+    if (!username || !/^[a-zA-Z0-9._\-]{1,40}$/.test(username)) {
+      res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid username (alphanumeric, dots, dashes, underscores, 1-40 chars)' })); return
+    }
+
+    const PLATFORMS = [
+      { name: 'GitHub',      url: `https://github.com/${username}` },
+      { name: 'GitLab',      url: `https://gitlab.com/${username}` },
+      { name: 'Twitter/X',   url: `https://twitter.com/${username}` },
+      { name: 'Instagram',   url: `https://www.instagram.com/${username}/` },
+      { name: 'Reddit',      url: `https://www.reddit.com/user/${username}` },
+      { name: 'LinkedIn',    url: `https://www.linkedin.com/in/${username}` },
+      { name: 'HackerNews',  url: `https://news.ycombinator.com/user?id=${username}` },
+      { name: 'Dev.to',      url: `https://dev.to/${username}` },
+      { name: 'Medium',      url: `https://medium.com/@${username}` },
+      { name: 'Keybase',     url: `https://keybase.io/${username}` },
+      { name: 'Steam',       url: `https://steamcommunity.com/id/${username}` },
+      { name: 'Pinterest',   url: `https://www.pinterest.com/${username}/` },
+      { name: 'YouTube',     url: `https://www.youtube.com/@${username}` },
+      { name: 'TikTok',      url: `https://www.tiktok.com/@${username}` },
+      { name: 'Twitch',      url: `https://www.twitch.tv/${username}` },
+      { name: 'Mastodon',    url: `https://mastodon.social/@${username}` },
+      { name: 'HackTheBox',  url: `https://app.hackthebox.com/profile/${username}` },
+      { name: 'TryHackMe',   url: `https://tryhackme.com/p/${username}` },
+    ]
+
+    const results = await Promise.all(
+      PLATFORMS.map(async ({ name, url: profileUrl }) => {
+        try {
+          const r = await fetch(profileUrl, {
+            method: 'GET',
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; OSINT-tool/1.0)' },
+            redirect: 'follow',
+            signal: AbortSignal.timeout(8000),
+          })
+          // 200 = likely found; 404 = not found; others = unknown
+          const found = r.status === 200
+          const unknown = !found && r.status !== 404
+          return { name, url: profileUrl, status: r.status, found, unknown }
+        } catch {
+          return { name, url: profileUrl, status: 0, found: false, unknown: true }
+        }
+      })
+    )
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ username, results }))
+    return
+  }
+
+  // ── PCAP Analysis Endpoints ───────────────────────────────────────────────────
+
+  // POST /security/pcap/upload  — stream raw PCAP bytes into a temp file
+  // Body is raw binary (Content-Type: application/octet-stream), up to 500 MB
+  if (req.method === 'POST' && url.pathname === '/security/pcap/upload') {
+    setCors(res)
+    try {
+      const tmpDir  = mkdtempSync(join(tmpdir(), 'pcap_'))
+      const rawHeader = req.headers['x-filename'] || ''
+      const rawName = (decodeURIComponent(rawHeader) || 'capture.pcap').replace(/[^a-zA-Z0-9._-]/g, '_')
+      const pcapPath = join(tmpDir, rawName)
+      const ws = createWriteStream(pcapPath)
+      let size = 0
+      const MAX = 500 * 1024 * 1024
+      req.on('data', chunk => {
+        size += chunk.length
+        if (size > MAX) { req.destroy(); ws.destroy(); return }
+        ws.write(chunk)
+      })
+      req.on('end', () => {
+        ws.end(() => {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ tmpPath: pcapPath, tmpDir, size }))
+        })
+      })
+      req.on('error', e => {
+        ws.destroy()
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: e.message }))
+      })
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // GET /security/pcap/interfaces  — list available network interfaces
+  if (req.method === 'GET' && url.pathname === '/security/pcap/interfaces') {
+    setCors(res)
+    try {
+      const result = spawnSync('ip', ['link', 'show'], { encoding: 'utf8' })
+      const ifaces = []
+      if (result.stdout) {
+        const lines = result.stdout.split('\n')
+        for (const line of lines) {
+          const m = line.match(/^\d+:\s+([^:@]+)/)
+          if (m) {
+            const name = m[1].trim()
+            if (name !== 'lo') ifaces.push(name)
+          }
+        }
+      }
+      // Also include lo for completeness
+      ifaces.unshift('any')
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ interfaces: ifaces }))
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // Active live capture sessions keyed by session ID
+  const _liveCaptureSessions = global._liveCaptureSessions = global._liveCaptureSessions || new Map()
+
+  // POST /security/pcap/capture/start  { iface, filter, snaplen }
+  // Starts tcpdump, streams parsed packets via SSE, stores session for stop/download
+  if (req.method === 'POST' && url.pathname === '/security/pcap/capture/start') {
+    setCors(res)
+    let body
+    try {
+      body = await new Promise((resolve, reject) => {
+        let d = ''
+        req.on('data', c => { d += c })
+        req.on('end', () => { try { resolve(JSON.parse(d)) } catch { reject(new Error('bad json')) } })
+        req.on('error', reject)
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+      return
+    }
+
+    const iface    = (body.iface || 'any').replace(/[^a-zA-Z0-9._-]/, '')
+    const bpf      = (body.filter || '').slice(0, 200)   // BPF filter
+    const snaplen  = Math.min(parseInt(body.snaplen ?? 65535, 10), 65535)
+    const sessionId = randomBytes(8).toString('hex')
+    const tmpDir   = mkdtempSync(join(tmpdir(), 'livecap_'))
+    const pcapFile = join(tmpDir, `capture-${sessionId}.pcap`)
+
+    // tcpdump args: write to file AND emit line-buffered text output for live parsing
+    const args = ['-i', iface, '-n', '-tt', '-l', '--print',
+                  '-w', pcapFile, '-s', String(snaplen)]
+    if (bpf) args.push(...bpf.split(' ').filter(Boolean))
+
+    let tcpdump
+    try {
+      tcpdump = spawn('tcpdump', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `Failed to start tcpdump: ${e.message}` }))
+      return
+    }
+
+    // Store session
+    _liveCaptureSessions.set(sessionId, { tcpdump, pcapFile, tmpDir, packetCount: 0, startTime: Date.now() })
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    })
+
+    const sendSSE = (type, data) => {
+      try { res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`) } catch {}
+    }
+
+    sendSSE('started', { sessionId, pcapFile })
+
+    // Parse tcpdump text output into structured packets
+    // tcpdump -tt -n --print format: "<timestamp> <proto> <src> > <dst>: <info> (<len>)"
+    let lineBuffer = ''
+    let pktNo = 0
+    const startTs = Date.now() / 1000
+
+    tcpdump.stdout.on('data', chunk => {
+      lineBuffer += chunk.toString()
+      const lines = lineBuffer.split('\n')
+      lineBuffer = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        pktNo++
+        const session = _liveCaptureSessions.get(sessionId)
+        if (session) session.packetCount = pktNo
+
+        // Parse: timestamp proto src > dst: rest
+        const tsMatch = trimmed.match(/^(\d+\.\d+)\s+(.+)$/)
+        const ts      = tsMatch ? parseFloat(tsMatch[1]) : Date.now() / 1000
+        const rest    = tsMatch ? tsMatch[2] : trimmed
+
+        // Extract src/dst from "X.X.X.X.port > Y.Y.Y.Y.port:" or "X > Y:"
+        let src = '', dst = '', proto = 'PKT', info = rest, sport = 0, dport = 0
+        const flowMatch = rest.match(/^([\w.:]+)\s*>\s*([\w.:]+):\s*(.*)$/)
+        if (flowMatch) {
+          const rawSrc = flowMatch[1], rawDst = flowMatch[2]
+          info = flowMatch[3]
+          // Split last dotted segment as port
+          const splitAddr = (addr) => {
+            const parts = addr.split('.')
+            if (parts.length >= 5) {
+              return { ip: parts.slice(0, 4).join('.'), port: parseInt(parts[4]) || 0 }
+            }
+            const colonParts = addr.split(':')
+            if (colonParts.length > 1 && /^\d+$/.test(colonParts[colonParts.length - 1])) {
+              return { ip: colonParts.slice(0, -1).join(':'), port: parseInt(colonParts[colonParts.length - 1]) }
+            }
+            return { ip: addr, port: 0 }
+          }
+          const s = splitAddr(rawSrc), d = splitAddr(rawDst)
+          src = s.ip; sport = s.port; dst = d.ip; dport = d.port
+          // Guess protocol from info/ports
+          if (/\bICMP\b/i.test(info))          proto = 'ICMP'
+          else if (/\bARP\b/i.test(info))       proto = 'ARP'
+          else if (/\bDNS\b/i.test(info))       proto = 'DNS'
+          else if (dport===443||sport===443)     proto = 'TLS'
+          else if (dport===80||sport===80)       proto = 'HTTP'
+          else if (dport===22||sport===22)       proto = 'SSH'
+          else if (dport===53||sport===53)       proto = 'DNS'
+          else if (/\bUDP\b/i.test(info) || /\bUDP\b/i.test(rest)) proto = 'UDP'
+          else proto = 'TCP'
+        } else if (/\bARP\b/i.test(rest)) {
+          proto = 'ARP'; info = rest
+        } else if (/\bICMP\b/i.test(rest)) {
+          proto = 'ICMP'; info = rest
+        }
+
+        sendSSE('packet', {
+          no: pktNo,
+          time: parseFloat((ts - startTs).toFixed(6)),
+          src, dst, sport, dport, proto,
+          len: 0,   // tcpdump text mode doesn't always give length easily
+          info: info.slice(0, 200),
+        })
+      }
+    })
+
+    tcpdump.stderr.on('data', chunk => {
+      const msg = chunk.toString().trim()
+      // tcpdump prints "listening on..." to stderr — not an error
+      if (/^tcpdump: listening/i.test(msg)) {
+        sendSSE('info', { message: msg })
+      } else if (/^[0-9]+ packets captured/i.test(msg) || /^[0-9]+ packets received/i.test(msg)) {
+        sendSSE('info', { message: msg })
+      } else if (/permission|not permitted|Operation not permitted/i.test(msg)) {
+        sendSSE('permission_error', { message: msg })
+      } else if (msg) {
+        sendSSE('error', { message: msg })
+      }
+    })
+
+    tcpdump.on('close', code => {
+      sendSSE('stopped', { sessionId, packetCount: pktNo, code })
+      res.end()
+    })
+
+    // Stop capture if client disconnects
+    req.on('close', () => {
+      try { tcpdump.kill('SIGTERM') } catch {}
+    })
+
+    return
+  }
+
+  // POST /security/pcap/capture/stop  { sessionId }
+  if (req.method === 'POST' && url.pathname === '/security/pcap/capture/stop') {
+    setCors(res)
+    let body
+    try {
+      body = await new Promise((resolve, reject) => {
+        let d = ''
+        req.on('data', c => { d += c })
+        req.on('end', () => { try { resolve(JSON.parse(d)) } catch { reject(new Error('bad json')) } })
+        req.on('error', reject)
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+      return
+    }
+    const session = _liveCaptureSessions.get(body.sessionId)
+    if (!session) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Session not found' }))
+      return
+    }
+    try { session.tcpdump.kill('SIGTERM') } catch {}
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true, pcapFile: session.pcapFile, packetCount: session.packetCount }))
+    return
+  }
+
+  // GET /security/pcap/capture/download?sessionId=xxx
+  // Streams the saved .pcap file back to the browser
+  if (req.method === 'GET' && url.pathname === '/security/pcap/capture/download') {
+    setCors(res)
+    const sid = url.searchParams.get('sessionId') || ''
+    const session = _liveCaptureSessions.get(sid)
+    if (!session || !existsSync(session.pcapFile)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Capture file not found' }))
+      return
+    }
+    const { statSync } = await import('fs')
+    const stat = statSync(session.pcapFile)
+    const fname = `capture-${new Date().toISOString().slice(0,19).replace(/[T:]/g,'-')}.pcap`
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.tcpdump.pcap',
+      'Content-Disposition': `attachment; filename="${fname}"`,
+      'Content-Length': stat.size,
+      'Access-Control-Allow-Origin': '*',
+    })
+    const fileStream = (await import('fs')).createReadStream(session.pcapFile)
+    fileStream.pipe(res)
+    // Clean up session after download
+    fileStream.on('end', () => {
+      _liveCaptureSessions.delete(sid)
+    })
+    return
+  }
+
+  // POST /security/pcap/packets  { tmpPath, offset, limit, filter }
+  // Returns a page of parsed packets for the Wireshark-like packet viewer
+  if (req.method === 'POST' && url.pathname === '/security/pcap/packets') {
+    setCors(res)
+    let body
+    try {
+      body = await new Promise((resolve, reject) => {
+        let d = ''
+        req.on('data', c => { d += c })
+        req.on('end', () => { try { resolve(JSON.parse(d)) } catch { reject(new Error('bad json')) } })
+        req.on('error', reject)
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+      return
+    }
+    const pcapPath = (body.tmpPath || body.pcapPath || '').replace(/^~/, homedir())
+    if (!pcapPath || !existsSync(pcapPath)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `PCAP file not found: ${pcapPath}` }))
+      return
+    }
+    const offset = parseInt(body.offset ?? 0, 10)
+    const limit  = Math.min(parseInt(body.limit ?? 500, 10), 2000)
+    const filter = (body.filter ?? '').trim()
+
+    const PACKET_SCRIPT = `
+import sys, json
+try:
+    from scapy.all import rdpcap, IP, IPv6, TCP, UDP, ICMP, DNS, DNSQR, ARP, Raw, Ether
+except ImportError as e:
+    print(json.dumps({"error": str(e)})); sys.exit(1)
+
+PCAP_PATH = sys.argv[1]
+OFFSET    = int(sys.argv[2])
+LIMIT     = int(sys.argv[3])
+FILTER    = sys.argv[4].lower()
+
+def safe(v):
+    if isinstance(v, bytes):
+        try: return v.decode('utf-8','replace')
+        except: return repr(v)
+    return str(v) if v is not None else ''
+
+try:
+    pkts = rdpcap(PCAP_PATH)
+except Exception as e:
+    print(json.dumps({"error": str(e)})); sys.exit(1)
+
+def proto_of(pkt):
+    if pkt.haslayer(DNS):  return 'DNS'
+    if pkt.haslayer(TCP):
+        dp = pkt[TCP].dport; sp = pkt[TCP].sport
+        if dp == 443 or sp == 443: return 'TLS'
+        if dp == 80  or sp == 80:  return 'HTTP'
+        if dp == 22  or sp == 22:  return 'SSH'
+        if dp == 21  or sp == 21:  return 'FTP'
+        if dp == 25  or sp == 25:  return 'SMTP'
+        return 'TCP'
+    if pkt.haslayer(UDP):  return 'UDP'
+    if pkt.haslayer(ICMP): return 'ICMP'
+    if pkt.haslayer(ARP):  return 'ARP'
+    return pkt.__class__.__name__
+
+def color_of(proto):
+    return {
+        'TCP':'#e8f4fd','UDP':'#e8fdf4','DNS':'#fdf8e1','TLS':'#f3e8fd',
+        'HTTP':'#fde8e8','ARP':'#fdf4e8','ICMP':'#f0f0f0','SSH':'#e8fde8',
+        'FTP':'#fde8f8','SMTP':'#fde8f8',
+    }.get(proto,'#f9f9f9')
+
+def info_of(pkt, proto):
+    try:
+        if proto == 'DNS' and pkt.haslayer(DNSQR):
+            qr = 'Q' if pkt[DNS].qr == 0 else 'R'
+            return f"DNS {qr}: {safe(pkt[DNSQR].qname).rstrip('.')}"
+        if proto == 'TCP':
+            flags = str(pkt[TCP].flags)
+            return f"[{flags}] Seq={pkt[TCP].seq} Ack={pkt[TCP].ack} Win={pkt[TCP].window}"
+        if proto in ('TLS','HTTP','SSH','FTP','SMTP'):
+            flags = str(pkt[TCP].flags)
+            return f"[{flags}] Seq={pkt[TCP].seq} Len={len(pkt[Raw]) if pkt.haslayer(Raw) else 0}"
+        if proto == 'UDP':
+            return f"Len={pkt[UDP].len}"
+        if proto == 'ICMP':
+            return f"Type={pkt[ICMP].type} Code={pkt[ICMP].code}"
+        if proto == 'ARP':
+            arp = pkt[ARP]
+            op = 'who-has' if arp.op == 1 else 'is-at'
+            return f"ARP {op} {safe(arp.pdst)} tell {safe(arp.psrc)}"
+    except: pass
+    return ''
+
+def src_dst(pkt):
+    src = dst = ''
+    if pkt.haslayer(IP):   src, dst = pkt[IP].src, pkt[IP].dst
+    elif pkt.haslayer(IPv6): src, dst = pkt[IPv6].src, pkt[IPv6].dst
+    elif pkt.haslayer(ARP): src, dst = safe(pkt[ARP].psrc), safe(pkt[ARP].pdst)
+    sport = dport = 0
+    if pkt.haslayer(TCP):  sport, dport = pkt[TCP].sport, pkt[TCP].dport
+    elif pkt.haslayer(UDP): sport, dport = pkt[UDP].sport, pkt[UDP].dport
+    return src, dst, sport, dport
+
+def pkt_layers(pkt):
+    layers = []
+    p = pkt
+    while p and p.name != 'NoPayload':
+        layers.append(p.name)
+        p = p.payload if hasattr(p, 'payload') else None
+    return layers[:8]
+
+def pkt_fields(pkt):
+    fields = {}
+    if pkt.haslayer(Ether):
+        e = pkt[Ether]
+        fields['Ethernet'] = {'src': safe(e.src), 'dst': safe(e.dst), 'type': hex(e.type)}
+    if pkt.haslayer(IP):
+        ip = pkt[IP]
+        fields['IP'] = {'src': ip.src, 'dst': ip.dst, 'ttl': ip.ttl, 'id': ip.id, 'len': ip.len, 'proto': ip.proto, 'flags': str(ip.flags)}
+    if pkt.haslayer(IPv6):
+        ip = pkt[IPv6]
+        fields['IPv6'] = {'src': ip.src, 'dst': ip.dst, 'hlim': ip.hlim, 'nh': ip.nh}
+    if pkt.haslayer(TCP):
+        t = pkt[TCP]
+        fields['TCP'] = {'sport': t.sport, 'dport': t.dport, 'seq': t.seq, 'ack': t.ack, 'flags': str(t.flags), 'window': t.window, 'urgptr': t.urgptr}
+    if pkt.haslayer(UDP):
+        u = pkt[UDP]
+        fields['UDP'] = {'sport': u.sport, 'dport': u.dport, 'len': u.len}
+    if pkt.haslayer(ICMP):
+        ic = pkt[ICMP]
+        fields['ICMP'] = {'type': ic.type, 'code': ic.code, 'id': getattr(ic,'id',0), 'seq': getattr(ic,'seq',0)}
+    if pkt.haslayer(DNS):
+        d = pkt[DNS]
+        fields['DNS'] = {'id': d.id, 'qr': d.qr, 'opcode': d.opcode, 'qdcount': d.qdcount, 'ancount': d.ancount}
+        if pkt.haslayer(DNSQR):
+            fields['DNS']['query'] = safe(pkt[DNSQR].qname).rstrip('.')
+    if pkt.haslayer(ARP):
+        a = pkt[ARP]
+        fields['ARP'] = {'op': a.op, 'hwsrc': safe(a.hwsrc), 'psrc': safe(a.psrc), 'hwdst': safe(a.hwdst), 'pdst': safe(a.pdst)}
+    if pkt.haslayer(Raw):
+        raw_b = bytes(pkt[Raw])
+        hex_str = raw_b[:64].hex()
+        try: text = raw_b[:128].decode('utf-8','replace').replace('\\n','\\\\n')
+        except: text = ''
+        fields['Raw'] = {'hex': hex_str, 'text': text, 'len': len(raw_b)}
+    return fields
+
+result = []
+start_ts = None
+for i, pkt in enumerate(pkts):
+    ts = float(pkt.time) if hasattr(pkt,'time') else 0
+    if start_ts is None: start_ts = ts
+    rel = round(ts - start_ts, 6) if start_ts else 0
+
+    proto = proto_of(pkt)
+    src, dst, sport, dport = src_dst(pkt)
+    info  = info_of(pkt, proto)
+    color = color_of(proto)
+
+    entry = {
+        'no': i+1, 'time': rel, 'src': src, 'dst': dst,
+        'sport': sport, 'dport': dport,
+        'proto': proto, 'len': len(pkt), 'info': info, 'color': color,
+        'layers': pkt_layers(pkt),
+        'fields': pkt_fields(pkt),
+    }
+
+    # Client-side filter applied server-side for performance
+    if FILTER:
+        flat = f"{src} {dst} {sport} {dport} {proto} {info}".lower()
+        if FILTER not in flat:
+            continue
+
+    result.append(entry)
+
+total_filtered = len(result)
+paged = result[OFFSET:OFFSET+LIMIT]
+print(json.dumps({"packets": paged, "total": total_filtered, "total_unfiltered": len(pkts)}))
+`
+    const scriptPath2 = join(tmpdir(), `pcap_packets_${Date.now()}.py`)
+    writeFileSync(scriptPath2, PACKET_SCRIPT)
+    const py = spawnSync('python3', [scriptPath2, pcapPath, String(offset), String(limit), filter], {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 60000,
+    })
+    try { require('fs').unlinkSync(scriptPath2) } catch {}
+    if (py.error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: py.error.message }))
+      return
+    }
+    const stdout = (py.stdout || '').toString().trim()
+    if (!stdout) {
+      const stderr = (py.stderr || '').toString().slice(0, 500)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: stderr || 'No output from script' }))
+      return
+    }
+    try {
+      const parsed = JSON.parse(stdout)
+      if (parsed.error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: parsed.error }))
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(parsed))
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Failed to parse script output' }))
+    }
+    return
+  }
+
+  // POST /security/pcap/analyze  { pcapPath: string }
+  // Runs the embedded Python/scapy analysis script and streams results via SSE
+  if (req.method === 'POST' && url.pathname === '/security/pcap/analyze') {
+    setCors(res)
+
+    let body
+    try {
+      body = await new Promise((resolve, reject) => {
+        let d = ''
+        req.on('data', c => { d += c })
+        req.on('end', () => { try { resolve(JSON.parse(d)) } catch { reject(new Error('bad json')) } })
+        req.on('error', reject)
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+      return
+    }
+
+    const pcapPath = (body.tmpPath || body.pcapPath || '').replace(/^~/, homedir())
+    if (!pcapPath || !existsSync(pcapPath)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `PCAP file not found: ${pcapPath}` }))
+      return
+    }
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    })
+
+    const sendSSE = (type, data) => res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`)
+
+    // Write the Python analysis script to a temp file
+    const scriptPath = join(tmpdir(), `pcap_analysis_${Date.now()}.py`)
+    const PYTHON_SCRIPT = `
+import sys, json, collections, math, re, os
+from datetime import datetime
+
+try:
+    from scapy.all import rdpcap, IP, IPv6, TCP, UDP, ICMP, DNS, DNSQR, DNSRR, ARP, Raw, Ether
+    from scapy.layers.http import HTTP, HTTPRequest, HTTPResponse
+except ImportError as e:
+    print(json.dumps({"type":"error","message":f"scapy import failed: {e}"}))
+    sys.exit(1)
+
+PCAP_PATH = sys.argv[1]
+
+def safe_str(v):
+    if isinstance(v, bytes):
+        try: return v.decode('utf-8', errors='replace')
+        except: return repr(v)
+    return str(v) if v is not None else ''
+
+def ip_str(pkt):
+    if pkt.haslayer(IP):   return pkt[IP].src,   pkt[IP].dst
+    if pkt.haslayer(IPv6): return pkt[IPv6].src, pkt[IPv6].dst
+    return None, None
+
+def is_private(ip):
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(ip)
+        return a.is_private or a.is_loopback or a.is_link_local
+    except: return False
+
+def is_public(ip):
+    return ip and not is_private(ip)
+
+print(json.dumps({"type":"progress","message":"Loading PCAP file..."}))
+sys.stdout.flush()
+
+try:
+    pkts = rdpcap(PCAP_PATH)
+except Exception as e:
+    print(json.dumps({"type":"error","message":f"Failed to read PCAP: {e}"}))
+    sys.exit(1)
+
+total = len(pkts)
+print(json.dumps({"type":"progress","message":f"Loaded {total} packets, starting analysis..."}))
+sys.stdout.flush()
+
+# ── Basic stats ────────────────────────────────────────────────────────────────
+proto_counts  = collections.Counter()
+src_ips       = collections.Counter()
+dst_ips       = collections.Counter()
+src_ports     = collections.Counter()
+dst_ports     = collections.Counter()
+total_bytes   = 0
+timestamps    = []
+conversations = collections.defaultdict(lambda: {"pkts":0,"bytes":0,"src_pkts":0,"dst_pkts":0})
+dns_queries   = []
+dns_responses = collections.defaultdict(list)
+http_requests = []
+tls_hosts     = []
+arp_table     = {}   # ip -> mac
+tcp_flags_dist = collections.Counter()
+icmp_types    = collections.Counter()
+
+for pkt in pkts:
+    total_bytes += len(pkt)
+    if hasattr(pkt, 'time'): timestamps.append(float(pkt.time))
+
+    src, dst = ip_str(pkt)
+    if src: src_ips[src] += 1
+    if dst: dst_ips[dst] += 1
+
+    if pkt.haslayer(TCP):
+        proto_counts['TCP'] += 1
+        sp, dp = pkt[TCP].sport, pkt[TCP].dport
+        src_ports[sp] += 1
+        dst_ports[dp] += 1
+        flags = pkt[TCP].flags
+        if flags: tcp_flags_dist[str(flags)] += 1
+        if src and dst:
+            key = tuple(sorted([(src,sp),(dst,dp)]))
+            k = f"{key[0][0]}:{key[0][1]}-{key[1][0]}:{key[1][1]}"
+            conversations[k]["pkts"] += 1
+            conversations[k]["bytes"] += len(pkt)
+            conversations[k]["src"]  = src
+            conversations[k]["dst"]  = dst
+            conversations[k]["sport"] = sp
+            conversations[k]["dport"] = dp
+            conversations[k]["proto"] = "TCP"
+
+    elif pkt.haslayer(UDP):
+        proto_counts['UDP'] += 1
+        sp, dp = pkt[UDP].sport, pkt[UDP].dport
+        src_ports[sp] += 1
+        dst_ports[dp] += 1
+        if src and dst:
+            key = tuple(sorted([(src,sp),(dst,dp)]))
+            k = f"{key[0][0]}:{key[0][1]}-{key[1][0]}:{key[1][1]}"
+            conversations[k]["pkts"] += 1
+            conversations[k]["bytes"] += len(pkt)
+            conversations[k]["src"]  = src
+            conversations[k]["dst"]  = dst
+            conversations[k]["sport"] = sp
+            conversations[k]["dport"] = dp
+            conversations[k]["proto"] = "UDP"
+
+    elif pkt.haslayer(ICMP):
+        proto_counts['ICMP'] += 1
+        icmp_types[pkt[ICMP].type] += 1
+
+    if pkt.haslayer(ARP):
+        proto_counts['ARP'] += 1
+        arp = pkt[ARP]
+        if arp.op == 2:  # is-at
+            arp_table[safe_str(arp.psrc)] = safe_str(arp.hwsrc)
+
+    # DNS
+    if pkt.haslayer(DNS):
+        proto_counts['DNS'] += 1
+        dns = pkt[DNS]
+        if dns.qr == 0 and pkt.haslayer(DNSQR):  # query
+            qname = safe_str(pkt[DNSQR].qname).rstrip('.')
+            dns_queries.append({"name": qname, "src": src or "?"})
+        elif dns.qr == 1 and pkt.haslayer(DNSRR):  # response
+            qname = safe_str(pkt[DNSQR].qname).rstrip('.') if pkt.haslayer(DNSQR) else "?"
+            rr = pkt[DNSRR]
+            while rr and rr.name:
+                rdata = safe_str(rr.rdata) if hasattr(rr,'rdata') else ''
+                if rdata: dns_responses[qname].append(rdata)
+                rr = rr.payload if hasattr(rr,'payload') and hasattr(rr.payload,'name') else None
+
+    # TLS SNI (ClientHello)
+    if pkt.haslayer(Raw) and pkt.haslayer(TCP):
+        raw = bytes(pkt[Raw])
+        # TLS ClientHello: content type 0x16, version 0x03xx, handshake type 0x01
+        if len(raw) > 43 and raw[0] == 0x16 and raw[1] == 0x03 and raw[5] == 0x01:
+            try:
+                # Walk to SNI extension
+                i = 43
+                session_len = raw[i]; i += 1 + session_len
+                if i+2 < len(raw):
+                    cs_len = (raw[i]<<8)|raw[i+1]; i += 2 + cs_len
+                if i+1 < len(raw):
+                    cm_len = raw[i]; i += 1 + cm_len
+                if i+2 < len(raw):
+                    ext_total = (raw[i]<<8)|raw[i+1]; i += 2
+                    end = i + ext_total
+                    while i + 4 <= end:
+                        ext_type  = (raw[i]<<8)|raw[i+1]
+                        ext_len   = (raw[i+2]<<8)|raw[i+3]; i += 4
+                        if ext_type == 0:  # SNI
+                            if i+5 < len(raw):
+                                sni_len = (raw[i+3]<<8)|raw[i+4]
+                                sni = raw[i+5:i+5+sni_len].decode('utf-8','replace')
+                                tls_hosts.append({"host": sni, "src": src or "?"})
+                        i += ext_len
+            except: pass
+
+print(json.dumps({"type":"progress","message":"Detecting threats..."}))
+sys.stdout.flush()
+
+# ── Threat detection ───────────────────────────────────────────────────────────
+threats = []
+
+# Port scan: many dst ports from one src
+port_scan_threshold = 20
+for ip, cnt in src_ips.items():
+    dst_port_set = set()
+    for pkt in pkts:
+        s, _ = ip_str(pkt)
+        if s == ip and pkt.haslayer(TCP):
+            dst_port_set.add(pkt[TCP].dport)
+    if len(dst_port_set) > port_scan_threshold:
+        threats.append({
+            "severity": "high",
+            "category": "Reconnaissance",
+            "title": f"Port Scan Detected — {ip}",
+            "detail": f"Source IP {ip} contacted {len(dst_port_set)} unique destination ports (threshold: {port_scan_threshold})",
+            "indicator": ip,
+        })
+
+# SYN flood: high ratio of SYN-only packets from a source
+syn_counts   = collections.Counter()
+synack_counts = collections.Counter()
+for pkt in pkts:
+    if pkt.haslayer(TCP):
+        f = pkt[TCP].flags
+        s, _ = ip_str(pkt)
+        if s:
+            if str(f) == 'S':  syn_counts[s] += 1
+            if 'S' in str(f) and 'A' in str(f): synack_counts[s] += 1
+for ip, cnt in syn_counts.items():
+    if cnt > 200 and synack_counts.get(ip, 0) < cnt * 0.1:
+        threats.append({
+            "severity": "high",
+            "category": "DoS/DDoS",
+            "title": f"Possible SYN Flood — {ip}",
+            "detail": f"{ip} sent {cnt} SYN packets with only {synack_counts.get(ip,0)} SYN-ACKs",
+            "indicator": ip,
+        })
+
+# Suspicious DNS: long subdomain (DGA / DNS tunneling)
+dga_domains = []
+for q in dns_queries:
+    parts = q['name'].split('.')
+    subdomain = '.'.join(parts[:-2]) if len(parts) > 2 else ''
+    if len(subdomain) > 30:
+        dga_domains.append(q['name'])
+    # Entropy check — high entropy labels may be DGA
+    for part in parts:
+        if len(part) > 12:
+            freq = collections.Counter(part)
+            entropy = -sum((c/len(part))*math.log2(c/len(part)) for c in freq.values())
+            if entropy > 3.8:
+                dga_domains.append(q['name'])
+                break
+if dga_domains:
+    uniq = list(dict.fromkeys(dga_domains))[:10]
+    threats.append({
+        "severity": "medium",
+        "category": "DNS Anomaly",
+        "title": "Possible DGA / DNS Tunneling",
+        "detail": f"High-entropy or unusually long DNS subdomains detected: {', '.join(uniq[:5])}{'...' if len(uniq)>5 else ''}",
+        "indicator": uniq[0],
+    })
+
+# Large data transfers to external IPs
+ext_bytes = collections.defaultdict(int)
+for k, c in conversations.items():
+    if is_public(c.get('dst','')):
+        ext_bytes[c['dst']] += c['bytes']
+for ip, b in ext_bytes.items():
+    if b > 5_000_000:
+        threats.append({
+            "severity": "medium",
+            "category": "Data Exfiltration",
+            "title": f"Large Outbound Transfer to {ip}",
+            "detail": f"{b/1024/1024:.1f} MB sent to external IP {ip}",
+            "indicator": ip,
+        })
+
+# Cleartext credentials: HTTP Basic Auth or POST to non-HTTPS
+for pkt in pkts:
+    if pkt.haslayer(Raw) and pkt.haslayer(TCP) and pkt[TCP].dport in (80, 8080, 8000):
+        raw = safe_str(bytes(pkt[Raw]))
+        if 'Authorization: Basic' in raw:
+            s, _ = ip_str(pkt)
+            threats.append({
+                "severity": "high",
+                "category": "Credential Exposure",
+                "title": f"Cleartext HTTP Basic Auth from {s}",
+                "detail": "HTTP Basic Authentication credentials transmitted in cleartext over port 80/8080",
+                "indicator": s or "unknown",
+            })
+            break
+        if raw.startswith('POST') and ('password' in raw.lower() or 'passwd' in raw.lower() or 'pwd=' in raw.lower()):
+            s, _ = ip_str(pkt)
+            threats.append({
+                "severity": "high",
+                "category": "Credential Exposure",
+                "title": f"Possible Cleartext Password Submission from {s}",
+                "detail": "POST request containing password field over unencrypted HTTP",
+                "indicator": s or "unknown",
+            })
+            break
+
+# ICMP tunnel: unusually large ICMP payloads
+for pkt in pkts:
+    if pkt.haslayer(ICMP) and pkt.haslayer(Raw):
+        if len(bytes(pkt[Raw])) > 200:
+            s, _ = ip_str(pkt)
+            threats.append({
+                "severity": "medium",
+                "category": "Covert Channel",
+                "title": f"Possible ICMP Tunnel from {s}",
+                "detail": f"ICMP packet with {len(bytes(pkt[Raw]))} byte payload (normal ping is 32-56 bytes)",
+                "indicator": s or "unknown",
+            })
+            break
+
+# Deduplicate threats
+seen_titles = set()
+unique_threats = []
+for t in threats:
+    if t['title'] not in seen_titles:
+        seen_titles.add(t['title'])
+        unique_threats.append(t)
+threats = unique_threats
+
+print(json.dumps({"type":"progress","message":"Building network topology..."}))
+sys.stdout.flush()
+
+# ── Network topology ───────────────────────────────────────────────────────────
+all_ips = set(src_ips.keys()) | set(dst_ips.keys())
+nodes = []
+seen_nodes = set()
+
+def guess_role(ip, src_cnt, dst_cnt, dst_ports_of_ip):
+    if is_private(ip):
+        # High out-traffic + many unique dst ports = workstation/scanner
+        if src_cnt > dst_cnt * 2: return 'client'
+        if 53 in dst_ports_of_ip: return 'dns-server'
+        if 80 in dst_ports_of_ip or 443 in dst_ports_of_ip: return 'web-server'
+        if dst_cnt > src_cnt * 2: return 'server'
+        return 'host'
+    else:
+        if 443 in dst_ports_of_ip: return 'external-https'
+        if 80 in dst_ports_of_ip:  return 'external-http'
+        if 53 in dst_ports_of_ip:  return 'external-dns'
+        return 'external'
+
+# Compute per-IP destination ports
+ip_dst_ports = collections.defaultdict(set)
+for pkt in pkts:
+    s, _ = ip_str(pkt)
+    if s and pkt.haslayer(TCP): ip_dst_ports[s].add(pkt[TCP].dport)
+    if s and pkt.haslayer(UDP): ip_dst_ports[s].add(pkt[UDP].dport)
+
+for ip in all_ips:
+    role = guess_role(ip, src_ips.get(ip,0), dst_ips.get(ip,0), ip_dst_ports.get(ip,set()))
+    mac = arp_table.get(ip, '')
+    # Resolve hostname from DNS responses
+    hostname = ''
+    for qname, rdata_list in dns_responses.items():
+        if ip in rdata_list:
+            hostname = qname
+            break
+    nodes.append({
+        "ip": ip, "role": role, "mac": mac, "hostname": hostname,
+        "sent_pkts": src_ips.get(ip,0), "recv_pkts": dst_ips.get(ip,0),
+        "is_private": is_private(ip),
+    })
+
+# Build edges (top 50 by byte volume)
+edges = []
+for k, c in sorted(conversations.items(), key=lambda x: -x[1]['bytes'])[:50]:
+    edges.append({
+        "src": c.get('src',''), "dst": c.get('dst',''),
+        "sport": c.get('sport',0), "dport": c.get('dport',0),
+        "proto": c.get('proto','?'), "pkts": c['pkts'], "bytes": c['bytes'],
+    })
+
+print(json.dumps({"type":"progress","message":"Finalising results..."}))
+sys.stdout.flush()
+
+# ── Top conversations ──────────────────────────────────────────────────────────
+top_convos = []
+for k, c in sorted(conversations.items(), key=lambda x: -x[1]['bytes'])[:30]:
+    top_convos.append({
+        "src": c.get('src',''), "dst": c.get('dst',''),
+        "sport": c.get('sport',0), "dport": c.get('dport',0),
+        "proto": c.get('proto','?'), "pkts": c['pkts'], "bytes": c['bytes'],
+    })
+
+# ── DNS summary ───────────────────────────────────────────────────────────────
+dns_summary = []
+query_counter = collections.Counter(q['name'] for q in dns_queries)
+for name, cnt in query_counter.most_common(50):
+    resolved = list(dict.fromkeys(dns_responses.get(name, [])))[:5]
+    dns_summary.append({"name": name, "queries": cnt, "resolved": resolved})
+
+# ── Duration & timing ─────────────────────────────────────────────────────────
+duration = 0
+start_ts = None
+end_ts   = None
+if timestamps:
+    start_ts = datetime.utcfromtimestamp(min(timestamps)).isoformat() + 'Z'
+    end_ts   = datetime.utcfromtimestamp(max(timestamps)).isoformat() + 'Z'
+    duration = max(timestamps) - min(timestamps)
+
+result = {
+    "summary": {
+        "total_packets":   total,
+        "total_bytes":     total_bytes,
+        "duration_secs":   round(duration, 2),
+        "start_time":      start_ts,
+        "end_time":        end_ts,
+        "unique_src_ips":  len(src_ips),
+        "unique_dst_ips":  len(dst_ips),
+        "proto_counts":    dict(proto_counts.most_common()),
+        "top_src_ips":     src_ips.most_common(10),
+        "top_dst_ips":     dst_ips.most_common(10),
+        "top_dst_ports":   dst_ports.most_common(15),
+        "tcp_flags":       dict(tcp_flags_dist.most_common()),
+        "icmp_types":      {str(k):v for k,v in icmp_types.items()},
+    },
+    "threats":       threats,
+    "conversations": top_convos,
+    "dns":           dns_summary,
+    "tls_hosts":     tls_hosts[:50],
+    "topology": {
+        "nodes": nodes,
+        "edges": edges,
+        "arp_table": arp_table,
+    },
+}
+
+print(json.dumps({"type":"result","data":result}))
+print(json.dumps({"type":"done"}))
+sys.stdout.flush()
+`
+
+    writeFileSync(scriptPath, PYTHON_SCRIPT)
+
+    const py = spawn('python3', [scriptPath, pcapPath], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let pyBuf = ''
+
+    py.stdout.on('data', chunk => {
+      pyBuf += chunk.toString()
+      const lines = pyBuf.split('\n')
+      pyBuf = lines.pop()
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        try {
+          const evt = JSON.parse(trimmed)
+          res.write(`data: ${JSON.stringify(evt)}\n\n`)
+        } catch {
+          // not JSON — send as progress note
+          res.write(`data: ${JSON.stringify({ type: 'progress', message: trimmed })}\n\n`)
+        }
+      }
+    })
+
+    py.stderr.on('data', chunk => {
+      const txt = chunk.toString().trim()
+      if (txt) res.write(`data: ${JSON.stringify({ type: 'progress', message: `[stderr] ${txt}` })}\n\n`)
+    })
+
+    py.on('close', code => {
+      // flush remaining buffer
+      if (pyBuf.trim()) {
+        try {
+          const evt = JSON.parse(pyBuf.trim())
+          res.write(`data: ${JSON.stringify(evt)}\n\n`)
+        } catch {}
+      }
+      try { require('fs').unlinkSync(scriptPath) } catch {}
+      if (code !== 0) res.write(`data: ${JSON.stringify({ type: 'error', message: `Python exited with code ${code}` })}\n\n`)
+      res.end()
+    })
+
+    req.on('close', () => { py.kill(); try { require('fs').unlinkSync(scriptPath) } catch {} })
     return
   }
 

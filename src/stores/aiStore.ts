@@ -31,6 +31,7 @@ interface AiState {
   setConfig: (config: Partial<AiConfig>) => void
   fetchModels: () => Promise<void>
   sendMessage: (userContent: string, context?: string) => Promise<void>
+  improvePrompt: (userContent: string) => Promise<string>
   clearChat: () => void
   abortStream: () => void
 }
@@ -185,6 +186,35 @@ export const useAiStore = create<AiState>((set, get) => ({
         set(s => ({ messages: [...s.messages, errMsg], streaming: false, streamingContent: '' }))
       }
     }
+  },
+
+  improvePrompt: async (userContent: string): Promise<string> => {
+    const { config } = get()
+    if (!config.serverUrl || !config.selectedModel) throw new Error('No model configured')
+
+    const res = await fetch(`${AI_PROXY}/ai/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverUrl: config.serverUrl,
+        apiKey: config.apiKey,
+        model: config.selectedModel,
+        messages: [
+          {
+            role: 'system',
+            content: `You are a prompt-improvement assistant helping students write better AI prompts. When given a rough or vague prompt, rewrite it to be clearer, more specific, and more likely to get a helpful response. Keep the student's original intent. Return only the improved prompt — no explanation, no preamble, no quotes.`,
+          },
+          { role: 'user', content: userContent },
+        ],
+        stream: false,
+      }),
+    })
+
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json() as { choices?: { message?: { content?: string } }[] }
+    const improved = data?.choices?.[0]?.message?.content?.trim()
+    if (!improved) throw new Error('No response from model')
+    return improved
   },
 
   clearChat: () => set({ messages: [], streamingContent: '' }),

@@ -9,6 +9,12 @@ export async function writeFile(handle: FileSystemFileHandle, content: string): 
   await writable.close()
 }
 
+export async function writeBinaryFile(handle: FileSystemFileHandle, data: Blob): Promise<void> {
+  const writable = await handle.createWritable()
+  await writable.write(data)
+  await writable.close()
+}
+
 export async function getFileHandle(
   dir: FileSystemDirectoryHandle,
   path: string,

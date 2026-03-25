@@ -1,9 +1,11 @@
-import React, { useRef } from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare } from 'lucide-react'
+import React, { useRef, useState, lazy, Suspense } from 'react'
+import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
 import FileTree from './FileTree'
+
+const MeetingNoteModal = lazy(() => import('../../features/meeting/MeetingNoteModal'))
 
 const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
   { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes' },
@@ -27,6 +29,7 @@ export default function Sidebar() {
   const { activeView, setActiveView, sidebarOpen, toggleSidebar, darkMode, toggleDarkMode, setCommandPaletteOpen } = useUiStore()
   const { rootHandle, fallbackMode, fallbackName, openVault, openVaultFallback, fileTree } = useVaultStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showMeetingModal, setShowMeetingModal] = useState(false)
 
   const vaultName = rootHandle?.name || (fallbackMode ? fallbackName : null)
   const hasVault = !!(rootHandle || fallbackMode)
@@ -112,6 +115,13 @@ export default function Sidebar() {
             <Search size={14} />
             Search <kbd className="ml-auto text-xs bg-gray-200 dark:bg-gray-700 px-1 rounded">⌘K</kbd>
           </button>
+          <button
+            onClick={() => setShowMeetingModal(true)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300"
+          >
+            <Mic size={14} />
+            Quick Meeting
+          </button>
         </div>
       )}
 
@@ -153,6 +163,15 @@ export default function Sidebar() {
 
       {/* Bottom controls */}
       <div className="p-2 border-t border-gray-200 dark:border-gray-700">
+        {!sidebarOpen && (
+          <button
+            onClick={() => setShowMeetingModal(true)}
+            className="w-full flex items-center justify-center p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 mb-1"
+            title="Quick Meeting"
+          >
+            <Mic size={16} />
+          </button>
+        )}
         <button
           onClick={toggleDarkMode}
           className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
@@ -162,6 +181,13 @@ export default function Sidebar() {
           {sidebarOpen && (darkMode ? 'Light mode' : 'Dark mode')}
         </button>
       </div>
+
+      {/* Meeting note modal — rendered outside sidebar flow so it overlays entire app */}
+      {showMeetingModal && (
+        <Suspense fallback={null}>
+          <MeetingNoteModal onClose={() => setShowMeetingModal(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

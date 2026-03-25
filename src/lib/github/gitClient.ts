@@ -87,6 +87,18 @@ export async function gitStream(
   return { code: finalCode }
 }
 
+/** Open a native OS folder picker and return the selected path, or null if cancelled */
+export async function browseDirectory(startPath?: string): Promise<string | null> {
+  const params = startPath ? `?start=${encodeURIComponent(startPath)}` : ''
+  const res = await fetch(`${GIT_SERVER}/browse/directory${params}`)
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'unknown' }))
+    throw new Error((err as { error?: string }).error ?? 'browse failed')
+  }
+  const { path } = await res.json() as { path: string }
+  return path || null
+}
+
 /** Check if git-server is reachable */
 export async function isServerReachable(): Promise<boolean> {
   try {

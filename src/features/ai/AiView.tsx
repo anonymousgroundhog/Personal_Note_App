@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Bot, Settings, Send, Square, Trash2, ChevronDown, ChevronUp,
-  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw,
+  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2,
 } from 'lucide-react'
 import { useAiStore } from '../../stores/aiStore'
 import { useVaultStore } from '../../stores/vaultStore'
@@ -204,7 +204,7 @@ export default function AiView() {
   const {
     config, models, modelsLoading,
     messages, streaming, streamingContent,
-    sendMessage, clearChat, abortStream, fetchModels,
+    sendMessage, improvePrompt, clearChat, abortStream, fetchModels,
   } = useAiStore()
   const { index } = useVaultStore()
 
@@ -212,6 +212,7 @@ export default function AiView() {
   const [showSettings, setShowSettings] = useState(!config.serverUrl)
   const [showNotePicker, setShowNotePicker] = useState(false)
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
+  const [isImproving, setIsImproving] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -272,6 +273,20 @@ export default function AiView() {
       handleSend()
     }
   }
+
+  const handleImprovePrompt = useCallback(async () => {
+    const text = input.trim()
+    if (!text || isImproving || !connected || !hasModel) return
+    setIsImproving(true)
+    try {
+      const improved = await improvePrompt(text)
+      setInput(improved)
+    } catch (e) {
+      // silently ignore — leave input unchanged
+    } finally {
+      setIsImproving(false)
+    }
+  }, [input, isImproving, connected, hasModel, improvePrompt])
 
   const removeNote = (path: string) => {
     setSelectedNotes(prev => {
@@ -442,6 +457,18 @@ export default function AiView() {
                   {selectedNotes.size}
                 </span>
               )}
+            </button>
+
+            <button
+              onClick={handleImprovePrompt}
+              disabled={!input.trim() || isImproving || !connected || !hasModel || streaming}
+              title="Improve prompt — rewrite your message to be clearer and more effective"
+              className="flex-shrink-0 flex items-center gap-1 px-2 py-1.5 rounded text-xs border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-accent-500 hover:text-accent-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {isImproving
+                ? <Loader2 size={12} className="animate-spin" />
+                : <Wand2 size={12} />}
+              Improve
             </button>
 
             <textarea

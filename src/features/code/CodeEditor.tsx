@@ -13,10 +13,11 @@ import { useUiStore } from '../../stores/uiStore'
 import {
   Play, Square, Terminal, ChevronDown, ChevronRight,
   FileCode, FilePlus, FolderOpen, X, AlertCircle, Folder,
-  FileText, Settings, Search as SearchIcon, TerminalSquare,
+  FileText, Settings, Search as SearchIcon, TerminalSquare, Bot,
 } from 'lucide-react'
 import type { TerminalPanelHandle } from './TerminalPanel'
 const TerminalPanel = lazy(() => import('./TerminalPanel'))
+const AiCodeOverlay = lazy(() => import('./AiCodeOverlay'))
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -265,6 +266,8 @@ export default function CodeEditor() {
   const terminalRef = useRef<TerminalPanelHandle>(null)
   const [folderSectionOpen, setFolderSectionOpen] = useState(true)
   const [scratchSectionOpen, setScratchSectionOpen] = useState(true)
+  const [showAiOverlay, setShowAiOverlay] = useState(false)
+  const [aiMessages, setAiMessages] = useState<import('./AiCodeOverlay').Message[]>([])
 
   const editorRef = useRef<HTMLDivElement>(null)
   const editorViewRef = useRef<EditorView | null>(null)
@@ -764,6 +767,16 @@ export default function CodeEditor() {
             <Terminal size={11} /> stdin
           </button>
 
+          {/* AI Tutor button */}
+          <button
+            onClick={() => setShowAiOverlay(v => !v)}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs"
+            style={{ background: showAiOverlay ? '#094771' : '#3c3c3c', color: showAiOverlay ? '#569cd6' : '#cccccc' }}
+            title="AI Coding Tutor"
+          >
+            <Bot size={11} /> AI Tutor
+          </button>
+
           {/* Terminal button */}
           <button onClick={openTerminal}
             className="flex items-center gap-1 px-2 py-0.5 rounded text-xs"
@@ -921,6 +934,20 @@ export default function CodeEditor() {
           </div>
         </div>
       </div>
+
+      {/* ── AI Code Overlay ── */}
+      {showAiOverlay && (
+        <Suspense fallback={null}>
+          <AiCodeOverlay
+            code={activeFile?.content ?? ''}
+            language={activeFile?.language ?? 'python'}
+            fileName={activeFile?.name ?? 'untitled'}
+            onClose={() => setShowAiOverlay(false)}
+            messages={aiMessages}
+            setMessages={setAiMessages}
+          />
+        </Suspense>
+      )}
     </div>
   )
 }
