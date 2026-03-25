@@ -1,49 +1,14 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
-import ReactDOM from 'react-dom/client'
-import { Eye, Edit3, Plus, RefreshCw, Tag, Search, FileText, Clock, Download } from 'lucide-react'
-import MarkdownEditor from './MarkdownEditor'
-import MarkdownPreview from './MarkdownPreview'
+import React, { useState, useCallback, useMemo } from 'react'
+import { FileText, Plus, Search, Edit3, Clock, X } from 'lucide-react'
+import NoteTabEditor from './NoteTabEditor'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
-import { parseFrontmatter, buildProcessor } from '../../lib/markdown/processor'
 import { todayIso } from '../../lib/fs/pathUtils'
-import { exportNoteToPdf, saveToFileSystem } from '../../lib/pdf/export'
-
-type EditorMode = 'edit' | 'preview' | 'split'
 
 export default function EditorView() {
-  const { activeNotePath, setActiveNote } = useUiStore()
-  const { readNote, saveNote, createNote, refreshIndex, index } = useVaultStore()
-  const [content, setContent] = useState('')
-  const [mode, setMode] = useState<EditorMode>('split')
-  const [dirty, setDirty] = useState(false)
-  const [tagInput, setTagInput] = useState('')
-  const [showTagPanel, setShowTagPanel] = useState(false)
-  const [showTagSuggestions, setShowTagSuggestions] = useState(false)
-  const [tagSuggestionIdx, setTagSuggestionIdx] = useState(0)
-  const [isExporting, setIsExporting] = useState(false)
-  const tagInputRef = useRef<HTMLInputElement>(null)
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-
-  useEffect(() => {
-    if (!activeNotePath) { setContent(''); return }
-    readNote(activeNotePath).then(text => {
-      setContent(text)
-      setDirty(false)
-    })
-  }, [activeNotePath, readNote])
-
-  const handleChange = useCallback((value: string) => {
-    setContent(value)
-    setDirty(true)
-    clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(async () => {
-      if (activeNotePath) {
-        await saveNote(activeNotePath, value)
-        setDirty(false)
-      }
-    }, 800)
-  }, [activeNotePath, saveNote])
+  const { openTabs, activeTabPath, openTab, closeTab, setActiveTab } = useUiStore()
+  const { createNote, index } = useVaultStore()
+  const [searchQuery, setSearchQuery] = useState('')
 
   const handleNewNote = async () => {
     const name = prompt('Note name:')
@@ -52,105 +17,12 @@ export default function EditorView() {
     const today = todayIso()
     const template = `---\ntags: []\ndate: ${today}\n---\n\n# ${name.replace(/\.md$/, '')}\n\n`
     await createNote(filename, template)
-    setActiveNote(filename)
+    openTab(filename)
   }
-
-  const handleAddTag = useCallback(async (override?: string) => {
-    const value = (override ?? tagInput).trim()
-    if (!activeNotePath || !value) return
-    const { frontmatter, body } = parseFrontmatter(content)
-    const tags = (frontmatter.tags as string[] || [])
-    if (!tags.includes(value)) {
-      tags.push(value)
-    }
-    const newFrontmatter = { ...frontmatter, tags }
-    const yaml = Object.entries(newFrontmatter).map(([k, v]) => {
-      if (Array.isArray(v)) {
-        return `${k}:\n${v.map(i => `  - ${i}`).join('\n')}`
-      }
-      return `${k}: ${v}`
-    }).join('\n')
-    const newContent = `---\n${yaml}\n---\n\n${body}`
-    handleChange(newContent)
-    setTagInput('')
-    setShowTagSuggestions(false)
-    setTagSuggestionIdx(0)
-  }, [activeNotePath, tagInput, content, handleChange])
-
-  const handleRemoveTag = useCallback(async (tagToRemove: string) => {
-    if (!activeNotePath) return
-    const { frontmatter, body } = parseFrontmatter(content)
-    const tags = ((frontmatter.tags as string[] || [])).filter(t => t !== tagToRemove)
-    const newFrontmatter = { ...frontmatter, tags }
-    const yaml = Object.entries(newFrontmatter).map(([k, v]) => {
-      if (Array.isArray(v)) return `${k}:\n${v.map(i => `  - ${i}`).join('\n')}`
-      return `${k}: ${v}`
-    }).join('\n')
-    handleChange(`---\n${yaml}\n---\n\n${body}`)
-  }, [activeNotePath, content, handleChange])
-
-  const handleExportPdf = useCallback(async () => {
-    if (!activeNotePath || !content) return
-    setIsExporting(true)
-    try {
-      const noteName = activeNotePath.split('/').pop()?.replace(/\.md$/, '') || 'note'
-
-      // Create a temporary container to render the markdown
-      const tempContainer = document.createElement('div')
-      tempContainer.style.display = 'none'
-      document.body.appendChild(tempContainer)
-
-      try {
-        // Render the MarkdownPreview component to the temp container
-        const root = ReactDOM.createRoot(tempContainer)
-        root.render(<MarkdownPreview content={content} />)
-
-        // Wait a moment for React to render
-        await new Promise(resolve => setTimeout(resolve, 100))
-
-        // Extract the rendered HTML
-        const htmlContent = tempContainer.innerHTML
-
-        // Export to PDF with file system save dialog
-        await exportNoteToPdf(noteName, htmlContent, saveToFileSystem)
-
-        root.unmount()
-      } finally {
-        document.body.removeChild(tempContainer)
-      }
-    } catch (error) {
-      console.error('Failed to export PDF:', error)
-      alert('Failed to export PDF. ' + (error instanceof Error ? error.message : 'Unknown error'))
-    } finally {
-      setIsExporting(false)
-    }
-  }, [activeNotePath, content])
-
-  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (!showTagSuggestions || filteredTagSuggestions.length === 0) {
-      if (e.key === 'Enter') { e.preventDefault(); handleAddTag() }
-      return
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      setTagSuggestionIdx(i => Math.min(i + 1, filteredTagSuggestions.length - 1))
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      setTagSuggestionIdx(i => Math.max(i - 1, 0))
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault()
-      handleAddTag(filteredTagSuggestions[tagSuggestionIdx])
-    } else if (e.key === 'Escape') {
-      setShowTagSuggestions(false)
-    }
-  }
-
-  const [searchQuery, setSearchQuery] = useState('')
 
   const suggestions = useMemo(() => {
     const entries = Array.from(index.entries()).map(([path, note]) => ({ path, note }))
     if (!searchQuery.trim()) {
-      // Sort by path (alphabetical) and return first 12
       return entries.sort((a, b) => a.path.localeCompare(b.path)).slice(0, 12)
     }
     const q = searchQuery.toLowerCase()
@@ -161,7 +33,6 @@ export default function EditorView() {
         (note.excerpt || '').toLowerCase().includes(q)
       )
       .sort((a, b) => {
-        // Rank name matches above excerpt matches
         const aName = a.note.name.toLowerCase().includes(q) ? 0 : 1
         const bName = b.note.name.toLowerCase().includes(q) ? 0 : 1
         return aName - bName || a.path.localeCompare(b.path)
@@ -169,28 +40,8 @@ export default function EditorView() {
       .slice(0, 12)
   }, [index, searchQuery])
 
-  // Collect all tags across the vault for autosuggestion
-  const allVaultTags = useMemo(() => {
-    const freq = new Map<string, number>()
-    for (const note of index.values()) {
-      const t = note.frontmatter?.tags as string[] | undefined
-      if (Array.isArray(t)) t.forEach(tag => freq.set(tag, (freq.get(tag) ?? 0) + 1))
-    }
-    return Array.from(freq.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([tag]) => tag)
-  }, [index])
-
-  const filteredTagSuggestions = useMemo(() => {
-    const q = tagInput.trim().toLowerCase()
-    if (!q) return allVaultTags.slice(0, 8)
-    return allVaultTags.filter(t => t.toLowerCase().includes(q) && t.toLowerCase() !== q).slice(0, 8)
-  }, [allVaultTags, tagInput])
-
-  const { frontmatter } = parseFrontmatter(content)
-  const tags = (frontmatter.tags as string[] || [])
-
-  if (!activeNotePath) {
+  // Show landing view when no tabs are open
+  if (openTabs.length === 0) {
     return (
       <div className="flex-1 flex flex-col bg-white dark:bg-surface-900 overflow-hidden">
         {/* Header bar */}
@@ -248,7 +99,7 @@ export default function EditorView() {
                   return (
                     <button
                       key={path}
-                      onClick={() => setActiveNote(path)}
+                      onClick={() => openTab(path)}
                       className="text-left p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-accent-500 hover:bg-accent-500/5 transition-colors group"
                     >
                       <div className="flex items-start gap-2">
@@ -284,134 +135,46 @@ export default function EditorView() {
     )
   }
 
+  // Show tabs and editor when notes are open
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-surface-900">
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
-          {activeNotePath?.split('/').pop()?.replace(/\.md$/, '')}
-          {dirty && <span className="ml-2 text-xs text-gray-400">●</span>}
-        </span>
-        <div className="flex items-center gap-1">
-          {/* Tags */}
-          <button
-            onClick={() => setShowTagPanel(p => !p)}
-            className={`p-1.5 rounded text-sm ${showTagPanel ? 'bg-accent-500 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}
-            title="Tags"
-          >
-            <Tag size={15} />
-          </button>
-          {/* Mode buttons */}
-          {(['edit', 'split', 'preview'] as EditorMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`px-2 py-1 rounded text-xs ${mode === m ? 'bg-accent-500 text-white' : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'}`}
+      {/* Tab bar */}
+      <div className="flex items-center gap-2 px-2 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto scrollbar-thin flex-shrink-0">
+        {openTabs.map(path => {
+          const name = path.split('/').pop()?.replace(/\.md$/, '') || path
+          const isActive = path === activeTabPath
+          return (
+            <div
+              key={path}
+              onClick={() => setActiveTab(path)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-t cursor-pointer whitespace-nowrap transition-colors ${
+                isActive
+                  ? 'bg-white dark:bg-surface-900 border-t border-x border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white'
+                  : 'bg-gray-50 dark:bg-surface-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700'
+              }`}
             >
-              {m === 'edit' ? <Edit3 size={14} /> : m === 'preview' ? <Eye size={14} /> : <span className="font-mono text-xs">⊞</span>}
-            </button>
-          ))}
-          <button
-            onClick={() => { refreshIndex(); if (activeNotePath) readNote(activeNotePath).then(setContent) }}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-            title="Refresh"
-          >
-            <RefreshCw size={14} />
-          </button>
-          <button
-            onClick={handleNewNote}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500"
-            title="New note"
-          >
-            <Plus size={15} />
-          </button>
-          <button
-            onClick={handleExportPdf}
-            disabled={isExporting}
-            className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Export as PDF"
-          >
-            <Download size={15} />
-          </button>
-        </div>
+              <FileText size={14} className="flex-shrink-0" />
+              <span className="text-sm max-w-[150px] truncate">{name}</span>
+              <button
+                onClick={e => {
+                  e.stopPropagation()
+                  closeTab(path)
+                }}
+                className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500 flex-shrink-0"
+                title="Close tab"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          )
+        })}
       </div>
 
-      {/* Tag panel */}
-      {showTagPanel && (
-        <div className="px-4 py-1.5 bg-gray-50 dark:bg-surface-800 border-b border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {tags.map(tag => (
-              <span key={tag} className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 bg-accent-500/10 text-accent-500 rounded-full text-xs group">
-                #{tag}
-                <button
-                  onClick={() => handleRemoveTag(tag)}
-                  className="hover:bg-accent-500/20 rounded-full p-0.5 opacity-60 hover:opacity-100"
-                  title={`Remove #${tag}`}
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-            <div className="relative">
-              <input
-                ref={tagInputRef}
-                type="text"
-                value={tagInput}
-                onChange={e => {
-                  setTagInput(e.target.value)
-                  setShowTagSuggestions(true)
-                  setTagSuggestionIdx(0)
-                }}
-                onFocus={() => setShowTagSuggestions(true)}
-                onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
-                onKeyDown={handleTagKeyDown}
-                placeholder="Add tag…"
-                className="text-xs border border-gray-300 dark:border-gray-600 rounded px-2 py-0.5 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-accent-500 w-32"
-              />
-              {showTagSuggestions && filteredTagSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 mt-0.5 bg-white dark:bg-surface-700 border border-gray-200 dark:border-gray-600 rounded shadow-lg z-50 min-w-36 py-0.5">
-                  {filteredTagSuggestions.map((tag, i) => (
-                    <button
-                      key={tag}
-                      onMouseDown={e => { e.preventDefault(); handleAddTag(tag) }}
-                      className={`w-full text-left px-3 py-1 text-xs flex items-center gap-1.5 ${
-                        i === tagSuggestionIdx
-                          ? 'bg-accent-500 text-white'
-                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600'
-                      }`}
-                    >
-                      <Tag size={9} />
-                      {tag}
-                    </button>
-                  ))}
-                  {tagInput.trim() && !allVaultTags.some(t => t.toLowerCase() === tagInput.trim().toLowerCase()) && (
-                    <button
-                      onMouseDown={e => { e.preventDefault(); handleAddTag() }}
-                      className="w-full text-left px-3 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-600 border-t border-gray-100 dark:border-gray-600 flex items-center gap-1.5"
-                    >
-                      <Plus size={9} />
-                      Create "{tagInput.trim()}"
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Editor / Preview */}
-      <div className="flex-1 flex overflow-hidden">
-        {(mode === 'edit' || mode === 'split') && (
-          <div className={`${mode === 'split' ? 'w-1/2 border-r border-gray-200 dark:border-gray-700' : 'w-full'} overflow-hidden`}>
-            <MarkdownEditor value={content} onChange={handleChange} />
-          </div>
-        )}
-        {(mode === 'preview' || mode === 'split') && (
-          <div className={`${mode === 'split' ? 'w-1/2' : 'w-full'} overflow-hidden`}>
-            <MarkdownPreview content={parseFrontmatter(content).body} />
-          </div>
-        )}
+      {/* Editors container */}
+      <div className="flex-1 overflow-hidden">
+        {openTabs.map(path => (
+          <NoteTabEditor key={path} path={path} isActive={path === activeTabPath} />
+        ))}
       </div>
     </div>
   )

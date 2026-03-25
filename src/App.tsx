@@ -15,6 +15,7 @@ import WebView from './features/web/WebView'
 import FinanceView from './features/finance/FinanceView'
 import SecurityView from './features/security/SecurityView'
 import CommunicationsView from './features/communications/CommunicationsView'
+import HelpView from './features/help/HelpView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -93,6 +94,8 @@ export default function App() {
           <SecurityView />
         ) : activeView === 'communications' ? (
           <CommunicationsView />
+        ) : activeView === 'help' ? (
+          <HelpView />
         ) : !hasVault ? (
           <WelcomeScreen />
         ) : (

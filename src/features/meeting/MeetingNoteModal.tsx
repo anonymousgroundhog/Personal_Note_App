@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import {
   X, Mic, MicOff, Square, Play, Pause, Clock, FileText,
-  CheckCircle2, AlertCircle, Loader2, Users,
+  CheckCircle2, AlertCircle, Loader2, Users, RotateCcw,
 } from 'lucide-react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
+import { useMeetingStore } from '../../stores/meetingStore'
 import { getFileHandle, writeBinaryFile } from '../../lib/fs/fileSystemApi'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -49,19 +50,14 @@ interface Props {
 
 export default function MeetingNoteModal({ onClose }: Props) {
   const { rootHandle, fallbackMode, createNote, saveNote, refreshIndex } = useVaultStore()
-  const { setActiveView, setActiveNote } = useUiStore()
+  const { setActiveView, openTab } = useUiStore()
+  const { draft, setTitle, setAttendees, setAgenda, setBodyNotes, clearDraft } = useMeetingStore()
 
   const vaultOpen = !!(rootHandle || fallbackMode)
   const fsApiAvailable = !!rootHandle  // binary file write requires FileSystem Access API
 
   // ── Form state ──────────────────────────────────────────────────────────────
-  const [title, setTitle] = useState(() => {
-    const now = new Date()
-    return `Meeting ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
-  })
-  const [attendees, setAttendees] = useState('')
-  const [agenda, setAgenda] = useState('')
-  const [bodyNotes, setBodyNotes] = useState('')
+  const { title, attendees, agenda, bodyNotes } = draft
 
   // ── Audio state ─────────────────────────────────────────────────────────────
   const [recordState, setRecordState] = useState<RecordState>('idle')
@@ -252,18 +248,19 @@ ${audioEmbedLine}
       await refreshIndex()
       setSavedPath(notePath)
       setSaveState('saved')
+      clearDraft()
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : 'Save failed')
       setSaveState('error')
     }
-  }, [vaultOpen, title, attendees, agenda, bodyNotes, audioBlob, audioMimeType, elapsed, fsApiAvailable, rootHandle, createNote, refreshIndex])
+  }, [vaultOpen, title, attendees, agenda, bodyNotes, audioBlob, audioMimeType, elapsed, fsApiAvailable, rootHandle, createNote, refreshIndex, clearDraft])
 
   const openNote = useCallback(() => {
     if (!savedPath) return
-    setActiveNote(savedPath)
+    openTab(savedPath)
     setActiveView('notes')
     onClose()
-  }, [savedPath, setActiveNote, setActiveView, onClose])
+  }, [savedPath, openTab, setActiveView, onClose])
 
   // ── Derived ─────────────────────────────────────────────────────────────────
 
@@ -515,6 +512,17 @@ ${audioEmbedLine}
                   <AlertCircle size={12} /> {saveError}
                 </span>
               )}
+              <button
+                onClick={() => {
+                  if (confirm('Clear all draft data? This cannot be undone.')) {
+                    clearDraft()
+                  }
+                }}
+                className="p-2 rounded-xl text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+                title="Clear draft"
+              >
+                <RotateCcw size={16} />
+              </button>
               <div className="ml-auto flex items-center gap-2">
                 <button
                   onClick={onClose}

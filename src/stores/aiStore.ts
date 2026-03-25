@@ -6,6 +6,14 @@ export interface AiConfig {
   selectedModel: string   // model id string
 }
 
+export interface AiServerProfile {
+  id: string
+  name: string
+  serverUrl: string
+  apiKey: string
+  selectedModel: string
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -20,6 +28,8 @@ export interface AiModel {
 }
 
 interface AiState {
+  profiles: AiServerProfile[]
+  activeProfileId: string | null
   config: AiConfig
   models: AiModel[]
   modelsLoading: boolean
@@ -28,6 +38,10 @@ interface AiState {
   streaming: boolean
   streamingContent: string
 
+  addProfile: (profile: Omit<AiServerProfile, 'id'>) => void
+  updateProfile: (id: string, updates: Partial<Omit<AiServerProfile, 'id'>>) => void
+  deleteProfile: (id: string) => void
+  setActiveProfile: (id: string) => void
   setConfig: (config: Partial<AiConfig>) => void
   fetchModels: () => Promise<void>
   sendMessage: (userContent: string, context?: string) => Promise<void>
@@ -36,28 +50,73 @@ interface AiState {
   abortStream: () => void
 }
 
-const STORAGE_KEY = 'aiStore_config'
+const STORAGE_KEY_V2 = 'aiStore_v2'
+const STORAGE_KEY_LEGACY = 'aiStore_config'
 // All AI requests go through the local server to avoid mixed-content (HTTPS→HTTP) blocks
 const AI_PROXY = `http://${window.location.hostname}:3001`
 
-function loadConfig(): AiConfig {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return JSON.parse(raw) as AiConfig
-  } catch {}
-  return { serverUrl: '', apiKey: '', selectedModel: '' }
+interface StorageData {
+  profiles: AiServerProfile[]
+  activeProfileId: string | null
 }
 
-function saveConfig(config: AiConfig) {
+function loadStorage(): StorageData {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config))
+    const raw = localStorage.getItem(STORAGE_KEY_V2)
+    if (raw) {
+      const data = JSON.parse(raw) as StorageData
+      if (data.profiles && Array.isArray(data.profiles)) {
+        return data
+      }
+    }
   } catch {}
+
+  // Migration: check for legacy single-config key
+  try {
+    const legacy = localStorage.getItem(STORAGE_KEY_LEGACY)
+    if (legacy) {
+      const config = JSON.parse(legacy) as AiConfig
+      if (config.serverUrl || config.apiKey) {
+        const profile: AiServerProfile = {
+          id: crypto.randomUUID(),
+          name: 'Default',
+          serverUrl: config.serverUrl,
+          apiKey: config.apiKey,
+          selectedModel: config.selectedModel,
+        }
+        return { profiles: [profile], activeProfileId: profile.id }
+      }
+    }
+  } catch {}
+
+  return { profiles: [], activeProfileId: null }
+}
+
+function saveStorage(data: StorageData) {
+  try {
+    localStorage.setItem(STORAGE_KEY_V2, JSON.stringify(data))
+  } catch {}
+}
+
+function getActiveProfile(profiles: AiServerProfile[], activeProfileId: string | null): AiConfig {
+  if (!activeProfileId) return { serverUrl: '', apiKey: '', selectedModel: '' }
+  const profile = profiles.find(p => p.id === activeProfileId)
+  if (!profile) return { serverUrl: '', apiKey: '', selectedModel: '' }
+  return {
+    serverUrl: profile.serverUrl,
+    apiKey: profile.apiKey,
+    selectedModel: profile.selectedModel,
+  }
 }
 
 let abortController: AbortController | null = null
 
+const initialStorage = loadStorage()
+
 export const useAiStore = create<AiState>((set, get) => ({
-  config: loadConfig(),
+  profiles: initialStorage.profiles,
+  activeProfileId: initialStorage.activeProfileId,
+  config: getActiveProfile(initialStorage.profiles, initialStorage.activeProfileId),
   models: [],
   modelsLoading: false,
   modelsError: null,
@@ -65,10 +124,71 @@ export const useAiStore = create<AiState>((set, get) => ({
   streaming: false,
   streamingContent: '',
 
+  addProfile: (profile) => {
+    const id = crypto.randomUUID()
+    const newProfile: AiServerProfile = { ...profile, id }
+    const profiles = [...get().profiles, newProfile]
+    const activeProfileId = get().activeProfileId || id
+    saveStorage({ profiles, activeProfileId })
+    set({
+      profiles,
+      activeProfileId,
+      config: getActiveProfile(profiles, activeProfileId),
+    })
+  },
+
+  updateProfile: (id, updates) => {
+    const profiles = get().profiles.map(p =>
+      p.id === id ? { ...p, ...updates } : p
+    )
+    const activeProfileId = get().activeProfileId
+    saveStorage({ profiles, activeProfileId })
+    set({
+      profiles,
+      config: getActiveProfile(profiles, activeProfileId),
+    })
+  },
+
+  deleteProfile: (id) => {
+    const profiles = get().profiles.filter(p => p.id !== id)
+    const activeProfileId = get().activeProfileId === id ? null : get().activeProfileId
+    saveStorage({ profiles, activeProfileId })
+    set({
+      profiles,
+      activeProfileId,
+      config: getActiveProfile(profiles, activeProfileId),
+      models: activeProfileId === null ? [] : get().models,
+      modelsError: activeProfileId === null ? null : get().modelsError,
+    })
+  },
+
+  setActiveProfile: (id) => {
+    const activeProfileId = id
+    const profiles = get().profiles
+    saveStorage({ profiles, activeProfileId })
+    set({
+      activeProfileId,
+      config: getActiveProfile(profiles, activeProfileId),
+    })
+  },
+
   setConfig: (partial) => {
+    const { activeProfileId, profiles } = get()
+    if (!activeProfileId) return
+
     const config = { ...get().config, ...partial }
-    saveConfig(config)
-    set({ config })
+    const updated = profiles.map(p =>
+      p.id === activeProfileId
+        ? {
+            ...p,
+            serverUrl: partial.serverUrl ?? p.serverUrl,
+            apiKey: partial.apiKey ?? p.apiKey,
+            selectedModel: partial.selectedModel ?? p.selectedModel,
+          }
+        : p
+    )
+    saveStorage({ profiles: updated, activeProfileId })
+    set({ profiles: updated, config })
   },
 
   fetchModels: async () => {

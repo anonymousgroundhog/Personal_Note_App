@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Bot, Settings, Send, Square, Trash2, ChevronDown, ChevronUp,
-  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2,
+  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2, Edit3,
 } from 'lucide-react'
 import { useAiStore } from '../../stores/aiStore'
 import { useVaultStore } from '../../stores/vaultStore'
@@ -111,82 +111,252 @@ function NotePicker({ selected, onToggle, onClose }: NotePickerProps) {
   )
 }
 
-// ── Connection settings panel ────────────────────────────────────────────────
-function ConnectionPanel({ onClose }: { onClose: () => void }) {
-  const { config, setConfig, fetchModels, models, modelsLoading, modelsError } = useAiStore()
-  const [url, setUrl] = useState(config.serverUrl)
-  const [key, setKey] = useState(config.apiKey)
+// ── Server settings panel with multiple profiles ──────────────────────────────
+function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
+  const {
+    profiles, activeProfileId, config, setConfig, fetchModels,
+    addProfile, updateProfile, deleteProfile, setActiveProfile,
+    models, modelsLoading, modelsError,
+  } = useAiStore()
 
-  const handleConnect = () => {
-    setConfig({ serverUrl: url.trim(), apiKey: key.trim(), selectedModel: '' })
-    fetchModels()
-  }
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingName, setEditingName] = useState('')
+  const [editingUrl, setEditingUrl] = useState('')
+  const [editingKey, setEditingKey] = useState('')
 
   const connected = models.length > 0 && !modelsError
 
+  const startAdd = () => {
+    setEditingId('__new__')
+    setEditingName('')
+    setEditingUrl('')
+    setEditingKey('')
+  }
+
+  const startEdit = (id: string) => {
+    const profile = profiles.find(p => p.id === id)
+    if (profile) {
+      setEditingId(id)
+      setEditingName(profile.name)
+      setEditingUrl(profile.serverUrl)
+      setEditingKey(profile.apiKey)
+    }
+  }
+
+  const handleTestConnection = async () => {
+    if (!editingUrl.trim()) return
+    const tempId = editingId === '__new__' ? 'temp' : editingId
+    const newConfig = { serverUrl: editingUrl.trim(), apiKey: editingKey.trim(), selectedModel: '' }
+    // Temporarily set config to test
+    setConfig(newConfig)
+    // Fetch models will use the new config
+    setTimeout(fetchModels, 0)
+  }
+
+  const handleSave = async () => {
+    if (!editingName.trim() || !editingUrl.trim()) return
+
+    if (editingId === '__new__') {
+      addProfile({
+        name: editingName,
+        serverUrl: editingUrl.trim(),
+        apiKey: editingKey.trim(),
+        selectedModel: '',
+      })
+    } else {
+      updateProfile(editingId!, {
+        name: editingName,
+        serverUrl: editingUrl.trim(),
+        apiKey: editingKey.trim(),
+      })
+      setActiveProfile(editingId!)
+    }
+    setEditingId(null)
+    // Fetch models for the activated/saved profile
+    setTimeout(fetchModels, 0)
+  }
+
+  const handleDelete = (id: string) => {
+    if (confirm(`Delete "${profiles.find(p => p.id === id)?.name}"?`)) {
+      deleteProfile(id)
+    }
+  }
+
+  const handleCancel = () => {
+    setEditingId(null)
+  }
+
+  const truncateUrl = (url: string) => {
+    if (url.length > 40) return url.slice(0, 37) + '…'
+    return url
+  }
+
   return (
     <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800">
-      <div className="p-4 space-y-3 max-w-2xl">
+      <div className="p-4 space-y-4 max-w-4xl">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">AI Server Connection</h3>
+          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-200">AI Server Profiles</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-0.5">
             <ChevronUp size={16} />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Server URL</label>
-            <input
-              type="url"
-              value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="http://your-server:8080"
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-            />
-            <p className="text-[10px] text-gray-400 mt-0.5">OpenWebUI, Ollama, LM Studio, OpenAI-compatible APIs — not port 3001 (that's this app's server)</p>
+        {/* Saved servers list */}
+        {profiles.length > 0 && editingId === null && (
+          <div className="space-y-1 border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-surface-700">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-gray-700">
+              <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">Saved Servers</span>
+              <button
+                onClick={startAdd}
+                className="flex items-center gap-1 px-2 py-1 text-xs rounded bg-accent-500 text-white hover:bg-accent-600 transition-colors"
+              >
+                <Plus size={12} /> Add New
+              </button>
+            </div>
+            {profiles.map(profile => (
+              <div
+                key={profile.id}
+                className={`flex items-center justify-between px-3 py-2 border-t border-gray-100 dark:border-gray-600 cursor-pointer transition-colors ${
+                  activeProfileId === profile.id
+                    ? 'bg-accent-50 dark:bg-accent-500/10'
+                    : 'hover:bg-gray-50 dark:hover:bg-surface-600'
+                }`}
+                onClick={() => {
+                  if (activeProfileId !== profile.id) {
+                    setActiveProfile(profile.id)
+                    setTimeout(fetchModels, 0)
+                  }
+                }}
+              >
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  {activeProfileId === profile.id && (
+                    <span className="text-accent-500 flex-shrink-0">●</span>
+                  )}
+                  {activeProfileId !== profile.id && <span className="w-2 flex-shrink-0" />}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{profile.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{truncateUrl(profile.serverUrl)}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      startEdit(profile.id)
+                    }}
+                    className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
+                    title="Edit"
+                  >
+                    <Edit3 size={14} />
+                  </button>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      handleDelete(profile.id)
+                    }}
+                    className="p-1 text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">API Key <span className="font-normal">(optional)</span></label>
-            <input
-              type="password"
-              value={key}
-              onChange={e => setKey(e.target.value)}
-              placeholder="sk-… or leave blank for local servers"
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-            />
-          </div>
-        </div>
+        )}
 
-        <div className="flex items-center gap-3">
+        {/* Add/Edit form */}
+        {editingId !== null && (
+          <div className="border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-surface-700 p-3 space-y-3">
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Profile Name</label>
+              <input
+                type="text"
+                value={editingName}
+                onChange={e => setEditingName(e.target.value)}
+                placeholder="e.g. Local Ollama, Remote OpenWebUI"
+                className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-600 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Server URL</label>
+              <input
+                type="url"
+                value={editingUrl}
+                onChange={e => setEditingUrl(e.target.value)}
+                placeholder="http://your-server:8080"
+                className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-600 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
+              />
+              <p className="text-[10px] text-gray-400 mt-0.5">OpenWebUI, Ollama, LM Studio, OpenAI-compatible APIs — not port 3001</p>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">API Key <span className="font-normal">(optional)</span></label>
+              <input
+                type="password"
+                value={editingKey}
+                onChange={e => setEditingKey(e.target.value)}
+                placeholder="sk-… or leave blank for local servers"
+                className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-600 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestConnection}
+                disabled={modelsLoading || !editingUrl.trim()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-surface-600 disabled:opacity-60"
+              >
+                {modelsLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                {modelsLoading ? 'Testing…' : 'Test Connection'}
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!editingName.trim() || !editingUrl.trim()}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm bg-accent-500 text-white hover:bg-accent-600 disabled:opacity-60"
+              >
+                Save Profile
+              </button>
+              <button
+                onClick={handleCancel}
+                className="px-3 py-1.5 rounded text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-surface-600"
+              >
+                Cancel
+              </button>
+            </div>
+
+            {connected && !modelsLoading && (
+              <span className="flex items-center gap-1 text-xs text-green-500 font-medium">
+                <CheckCircle2 size={13} /> {models.length} model{models.length !== 1 ? 's' : ''} available
+              </span>
+            )}
+            {modelsError && (
+              <span className="flex items-center gap-1 text-xs text-red-500">
+                <AlertCircle size={13} /> {modelsError}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Add New button when no form is open and no profiles */}
+        {profiles.length === 0 && editingId === null && (
           <button
-            onClick={handleConnect}
-            disabled={modelsLoading || !url.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 text-sm disabled:opacity-60"
+            onClick={startAdd}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:border-accent-500 hover:text-accent-500 transition-colors"
           >
-            {modelsLoading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-            {modelsLoading ? 'Connecting…' : 'Connect'}
+            <Plus size={16} /> Add Your First AI Server
           </button>
+        )}
 
-          {connected && (
-            <span className="flex items-center gap-1 text-xs text-green-500 font-medium">
-              <CheckCircle2 size={13} /> {models.length} model{models.length !== 1 ? 's' : ''} available
-            </span>
-          )}
-          {modelsError && (
-            <span className="flex items-center gap-1 text-xs text-red-500">
-              <AlertCircle size={13} /> {modelsError}
-            </span>
-          )}
-        </div>
-
-        {models.length > 0 && (
+        {/* Active model select */}
+        {activeProfileId && models.length > 0 && editingId === null && (
           <div>
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400 block mb-1">Active Model</label>
             <select
               value={config.selectedModel}
               onChange={e => setConfig({ selectedModel: e.target.value })}
-              className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-accent-500 max-w-sm"
+              className="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-accent-500"
             >
               {models.map(m => (
                 <option key={m.id} value={m.id}>{m.name}</option>
@@ -202,14 +372,14 @@ function ConnectionPanel({ onClose }: { onClose: () => void }) {
 // ── Main AiView ──────────────────────────────────────────────────────────────
 export default function AiView() {
   const {
-    config, models, modelsLoading,
+    activeProfileId, config, models, modelsLoading,
     messages, streaming, streamingContent,
     sendMessage, improvePrompt, clearChat, abortStream, fetchModels,
   } = useAiStore()
   const { index } = useVaultStore()
 
   const [input, setInput] = useState('')
-  const [showSettings, setShowSettings] = useState(!config.serverUrl)
+  const [showSettings, setShowSettings] = useState(!activeProfileId)
   const [showNotePicker, setShowNotePicker] = useState(false)
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
   const [isImproving, setIsImproving] = useState(false)
@@ -334,7 +504,7 @@ export default function AiView() {
       </div>
 
       {/* Connection settings panel */}
-      {showSettings && <ConnectionPanel onClose={() => setShowSettings(false)} />}
+      {showSettings && <ServerSettingsPanel onClose={() => setShowSettings(false)} />}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

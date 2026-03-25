@@ -11,7 +11,7 @@ interface Props {
 }
 
 export default function FileTree({ nodes, depth = 0 }: Props) {
-  const { setActiveNote, setActiveView } = useUiStore()
+  const { openTab, setActiveView } = useUiStore()
   const { createNote, deleteNote } = useVaultStore()
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [hovering, setHovering] = useState<string | null>(null)
@@ -32,7 +32,7 @@ export default function FileTree({ nodes, depth = 0 }: Props) {
     const today = todayIso()
     const content = `---\ntags: []\ndate: ${today}\n---\n\n# ${name.replace(/\.md$/, '')}\n\n`
     await createNote(path, content)
-    setActiveNote(path)
+    openTab(path)
     setActiveView('notes')
   }
 
@@ -54,7 +54,7 @@ export default function FileTree({ nodes, depth = 0 }: Props) {
             onClick={() => {
               if (node.type === 'folder') toggle(node.path)
               else {
-                setActiveNote(node.path)
+                openTab(node.path)
                 setActiveView('notes')
               }
             }}
