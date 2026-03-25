@@ -4,12 +4,14 @@ import {
   Plus, X, Calendar, User, AlertCircle, Edit2, Trash2,
   Flag, MoreHorizontal, Circle, CheckCircle, RefreshCw,
   BookOpen, ChevronDown, ChevronRight as ChevronRightIcon, BarChart2,
-  ArrowRight, HelpCircle, Lightbulb, ListChecks, Target,
+  ArrowRight, HelpCircle, Lightbulb, ListChecks, Target, CheckSquare,
 } from 'lucide-react'
 import { useGsdStore } from './gsdStore'
 import type { GsdItem, GsdItemStatus, GsdPriority, GsdProject } from './gsdStore'
 import { useVaultStore } from '../../stores/vaultStore'
 import { parseGanttTasks } from '../gantt/ganttParser'
+import GanttView from '../gantt/GanttView'
+import TasksView from '../tasks/TasksView'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STATUS_META: Record<GsdItemStatus, { label: string; icon: React.ReactNode; color: string }> = {
@@ -420,7 +422,7 @@ function ProjectEditor({ project, onClose }: { project?: GsdProject; onClose: ()
 }
 
 // ── Main GsdView ─────────────────────────────────────────────────────────────
-type GsdTab = 'inbox' | 'next' | 'waiting' | 'someday' | 'done' | 'projects' | 'review' | 'help'
+type GsdTab = 'inbox' | 'next' | 'waiting' | 'someday' | 'done' | 'projects' | 'review' | 'help' | 'gantt' | 'tasks'
 
 export default function GsdView() {
   const { items, projects, updateItem, syncFromGantt } = useGsdStore()
@@ -499,6 +501,8 @@ export default function GsdView() {
     { id: 'projects', label: 'Projects',      icon: <FolderOpen size={14} /> },
     { id: 'done',     label: 'Done',          icon: <CheckCircle2 size={14} /> },
     { id: 'review',   label: 'Review',        icon: <AlertCircle size={14} /> },
+    { id: 'gantt',    label: 'Gantt',         icon: <BarChart2 size={14} /> },
+    { id: 'tasks',    label: 'Tasks',         icon: <CheckSquare size={14} /> },
     { id: 'help',     label: 'Help Guide',    icon: <HelpCircle size={14} /> },
   ]
 
@@ -610,7 +614,9 @@ export default function GsdView() {
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
+      {activeTab === 'gantt' && <GanttView />}
+      {activeTab === 'tasks' && <TasksView />}
+      <div className={`flex-1 flex overflow-hidden ${activeTab === 'gantt' || activeTab === 'tasks' ? 'hidden' : ''}`}>
         <div className="flex-1 overflow-y-auto">
           {/* ── Inbox ── */}
           {activeTab === 'inbox' && (

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Bot, Settings, Send, Square, Trash2, ChevronDown, ChevronUp,
-  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2, Edit3,
+  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2, Edit3, Mic, MicOff, Volume2, VolumeX,
 } from 'lucide-react'
 import { useAiStore } from '../../stores/aiStore'
 import { useVaultStore } from '../../stores/vaultStore'
+import { useSpeechInput, useTts } from '../../lib/hooks/useSpeech'
 
 // ── Small markdown-ish renderer for assistant messages ──────────────────────
 function MessageContent({ content }: { content: string }) {
@@ -383,8 +384,37 @@ export default function AiView() {
   const [showNotePicker, setShowNotePicker] = useState(false)
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
   const [isImproving, setIsImproving] = useState(false)
+  const [interimTranscript, setInterimTranscript] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const inputBeforeSpeechRef = useRef('')
+
+  const handleTranscript = useCallback((text: string, isFinal: boolean) => {
+    if (isFinal) {
+      setInput(prev => {
+        const base = inputBeforeSpeechRef.current
+        const combined = base ? base + ' ' + text : text
+        inputBeforeSpeechRef.current = combined
+        return combined
+      })
+      setInterimTranscript('')
+    } else {
+      setInterimTranscript(text)
+    }
+  }, [])
+
+  const { listening, supported: speechSupported, start: startListening, stop: stopListening } = useSpeechInput(handleTranscript)
+  const { speakingId, supported: ttsSupported, speak, stop: stopSpeaking } = useTts()
+
+  const toggleMic = useCallback(() => {
+    if (listening) {
+      stopListening()
+      setInterimTranscript('')
+    } else {
+      inputBeforeSpeechRef.current = input
+      startListening()
+    }
+  }, [listening, input, startListening, stopListening])
 
   const connected = config.serverUrl && models.length > 0
   const hasModel = !!config.selectedModel
@@ -432,10 +462,16 @@ export default function AiView() {
   const handleSend = useCallback(async () => {
     const text = input.trim()
     if (!text || streaming || !connected || !hasModel) return
+    // Stop mic if active before sending
+    if (listening) {
+      stopListening()
+      setInterimTranscript('')
+    }
     setInput('')
+    inputBeforeSpeechRef.current = ''
     const context = buildContext()
     await sendMessage(text, context)
-  }, [input, streaming, connected, hasModel, buildContext, sendMessage])
+  }, [input, streaming, connected, hasModel, listening, stopListening, buildContext, sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -483,6 +519,15 @@ export default function AiView() {
           </span>
         )}
         <div className="ml-auto flex items-center gap-2">
+          {speakingId && (
+            <button
+              onClick={stopSpeaking}
+              title="Stop speaking"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-accent-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors animate-pulse"
+            >
+              <VolumeX size={13} /> Stop
+            </button>
+          )}
           {messages.length > 0 && (
             <button
               onClick={clearChat}
@@ -552,9 +597,24 @@ export default function AiView() {
               ) : (
                 <MessageContent content={msg.content} />
               )}
-              <p className={`text-[10px] mt-1 ${msg.role === 'user' ? 'text-white/60 text-right' : 'text-gray-400'}`}>
-                {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </p>
+              <div className={`flex items-center mt-1 ${msg.role === 'user' ? 'justify-end' : 'justify-between'}`}>
+                <p className={`text-[10px] ${msg.role === 'user' ? 'text-white/60' : 'text-gray-400'}`}>
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                {msg.role === 'assistant' && ttsSupported && (
+                  <button
+                    onClick={() => speak(msg.id, msg.content)}
+                    title={speakingId === msg.id ? 'Stop speaking' : 'Read aloud'}
+                    className={`ml-2 p-1 rounded-full transition-colors ${
+                      speakingId === msg.id
+                        ? 'text-accent-500 bg-accent-500/10 animate-pulse'
+                        : 'text-gray-400 hover:text-accent-500 hover:bg-accent-500/10'
+                    }`}
+                  >
+                    {speakingId === msg.id ? <VolumeX size={12} /> : <Volume2 size={12} />}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -641,26 +701,58 @@ export default function AiView() {
               Improve
             </button>
 
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={e => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                !config.serverUrl
-                  ? 'Configure a server to start chatting…'
-                  : !connected
-                    ? 'Connect to a server to start chatting…'
-                    : !hasModel
-                      ? 'Select a model to start chatting…'
-                      : selectedNotes.size > 0
-                        ? `Ask about your ${selectedNotes.size} selected note${selectedNotes.size !== 1 ? 's' : ''}… (Enter to send)`
-                        : 'Ask anything… (Enter to send, Shift+Enter for new line)'
-              }
-              disabled={!connected || !hasModel}
-              rows={1}
-              className="flex-1 resize-none text-sm border border-gray-300 dark:border-gray-600 rounded-xl px-3 py-2 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-500 placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden"
-            />
+            <div className="flex-1 relative">
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={e => {
+                  setInput(e.target.value)
+                  inputBeforeSpeechRef.current = e.target.value
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  listening
+                    ? 'Listening… speak now'
+                    : !config.serverUrl
+                      ? 'Configure a server to start chatting…'
+                      : !connected
+                        ? 'Connect to a server to start chatting…'
+                        : !hasModel
+                          ? 'Select a model to start chatting…'
+                          : selectedNotes.size > 0
+                            ? `Ask about your ${selectedNotes.size} selected note${selectedNotes.size !== 1 ? 's' : ''}… (Enter to send)`
+                            : 'Ask anything… (Enter to send, Shift+Enter for new line)'
+                }
+                disabled={!connected || !hasModel}
+                rows={1}
+                className={`w-full resize-none text-sm border rounded-xl px-3 py-2 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-500 placeholder-gray-400 disabled:opacity-50 disabled:cursor-not-allowed overflow-hidden transition-colors ${
+                  listening
+                    ? 'border-red-400 dark:border-red-500 ring-2 ring-red-400/30'
+                    : 'border-gray-300 dark:border-gray-600'
+                }`}
+              />
+              {/* Interim transcript overlay */}
+              {listening && interimTranscript && (
+                <p className="absolute bottom-full mb-1 left-0 right-0 text-xs text-gray-400 italic px-1 truncate pointer-events-none">
+                  {interimTranscript}
+                </p>
+              )}
+            </div>
+
+            {/* Mic button */}
+            {speechSupported && (
+              <button
+                onClick={toggleMic}
+                title={listening ? 'Stop listening' : 'Speak your message'}
+                className={`flex-shrink-0 p-2 rounded-xl transition-colors ${
+                  listening
+                    ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse'
+                    : 'border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-red-400 hover:text-red-500'
+                }`}
+              >
+                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            )}
 
             {streaming ? (
               <button
@@ -682,7 +774,7 @@ export default function AiView() {
             )}
           </div>
           <p className="text-[10px] text-gray-400 mt-1.5 text-right">
-            Enter to send · Shift+Enter for new line
+            Enter to send · Shift+Enter for new line{speechSupported ? ' · Mic to speak' : ''}
           </p>
         </div>
       </div>

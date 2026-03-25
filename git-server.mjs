@@ -514,9 +514,10 @@ const server = createServer(async (req, res) => {
   // POST /ai/chat    — proxy POST /api/chat/completions (then /v1/chat/completions) and stream back
   // Body: { serverUrl, apiKey, ...rest }
   if (req.method === 'POST' && (url.pathname === '/ai/models' || url.pathname === '/ai/chat')) {
-    let body = ''
-    req.on('data', d => { body += d })
+    const chunks = []
+    req.on('data', d => { chunks.push(d) })
     await new Promise(resolve => req.on('end', resolve))
+    const body = Buffer.concat(chunks).toString('utf8')
     let payload
     try { payload = JSON.parse(body) } catch {
       res.writeHead(400, { 'Content-Type': 'application/json' })
@@ -576,37 +577,48 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // /ai/chat — forward to OpenWebUI /api/chat/completions and pipe stream back
-    // Falls back to /v1/chat/completions for plain OpenAI-compat servers
+    // /ai/chat — try OpenWebUI path first, then standard OpenAI-compat path
     let upstream = null
     let lastChatErr = ''
-    for (const path of ['/api/chat/completions', '/v1/chat/completions']) {
+    const chatPaths = ['/api/chat/completions', '/v1/chat/completions']
+    for (const path of chatPaths) {
       let r
+      // Use a 15 s timeout for the initial connection only — once headers arrive
+      // we know the server accepted the request and streaming can take any time.
+      const connectTimeout = AbortSignal.timeout(15000)
       try {
         r = await fetch(`${base}${path}`, {
           method: 'POST',
           headers,
           body: JSON.stringify(rest),
-          // No AbortSignal timeout — streaming responses can be arbitrarily long.
-          // The client-side AbortController handles cancellation.
+          signal: connectTimeout,
         })
       } catch (e) {
-        lastChatErr = e.message
+        lastChatErr = e.name === 'TimeoutError' ? `connection timeout on ${path}` : e.message
         continue
       }
       if (r.status === 401 || r.status === 403) {
-        const body = await r.text()
+        const errBody = await r.text()
         res.writeHead(r.status, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Authentication failed (HTTP ${r.status}). Check your API key.`, detail: body }))
+        res.end(JSON.stringify({ error: `Authentication failed (HTTP ${r.status}). Check your API key.`, detail: errBody }))
         return
       }
-      if (r.status === 404) { lastChatErr = `HTTP 404 at ${path}`; continue }  // try next path
+      if (r.status === 404 || r.status === 405 || r.status === 400) {
+        const errBody = await r.text().catch(() => '')
+        console.warn(`[ai/chat] ${r.status} on ${path}, trying next. Body: ${errBody.slice(0, 200)}`)
+        lastChatErr = `HTTP ${r.status} at ${path}`
+        continue
+      }
+      // Once we have a successful response, detach from the connect timeout
+      // so the streaming body can flow without being cut off
       upstream = r
       break
     }
     if (!upstream) {
       res.writeHead(502, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: `Could not reach AI server at ${base}. ${lastChatErr}`.trim() }))
+      res.end(JSON.stringify({
+        error: `AI server at ${base} rejected both chat endpoints (${chatPaths.join(', ')}). Last error: ${lastChatErr}. Check your server URL and model name in AI Chat settings.`
+      }))
       return
     }
     if (!upstream.ok) {

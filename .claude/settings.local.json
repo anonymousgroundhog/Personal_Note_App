@@ -84,7 +84,10 @@
       "Bash(ip link:*)",
       "Bash(sudo -n tcpdump --version)",
       "Bash(getcap /usr/bin/tcpdump)",
-      "Bash(sudo setcap:*)"
+      "Bash(sudo setcap:*)",
+      "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App -name *.config.* -o -name server.* -o -name proxy.*)",
+      "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App -type f -name server* ! -path */node_modules/*)",
+      "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App/src -type f \\\\\\(-name *.md -o -name *.test.* \\\\\\) ! -path */node_modules/*)"
     ]
   }
 }

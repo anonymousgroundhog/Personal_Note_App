@@ -1,19 +1,18 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, BarChart2, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Network, CheckSquare, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle } from 'lucide-react'
+import { FileText, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
 import FileTree from './FileTree'
+import MusicPlayer from '../../features/music/MusicPlayer'
+import { useMusicStore } from '../../features/music/musicStore'
 
 const MeetingNoteModal = lazy(() => import('../../features/meeting/MeetingNoteModal'))
 
 const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
   { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes' },
-  { view: 'gantt',    icon: <BarChart2 size={18} />,   label: 'Gantt' },
   { view: 'calendar', icon: <Calendar size={18} />,    label: 'Calendar' },
   { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags' },
-  { view: 'graph',    icon: <Network size={18} />,      label: 'Graph' },
-  { view: 'tasks',    icon: <CheckSquare size={18} />,  label: 'Tasks' },
   { view: 'sync',     icon: <Github size={18} />,       label: 'Sync' },
   { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams', section: 'Tools' },
   { view: 'code',     icon: <Code2 size={18} />,        label: 'Code' },
@@ -23,6 +22,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?
   { view: 'finance',  icon: <DollarSign size={18} />,     label: 'Finance' },
   { view: 'security', icon: <Shield size={18} />,         label: 'Security' },
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
+  { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility', section: 'Accessibility' },
   { view: 'help', icon: <HelpCircle size={18} />, label: 'Help', section: 'Help' },
 ]
 
@@ -31,6 +31,9 @@ export default function Sidebar() {
   const { rootHandle, fallbackMode, fallbackName, openVault, openVaultFallback, fileTree } = useVaultStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showMeetingModal, setShowMeetingModal] = useState(false)
+  const [showMusicPlayer, setShowMusicPlayer] = useState(false)
+  const { isPlaying, title, artist, sendCommand } = useMusicStore()
+  const hasTrack = !!(title)
 
   const vaultName = rootHandle?.name || (fallbackMode ? fallbackName : null)
   const hasVault = !!(rootHandle || fallbackMode)
@@ -173,6 +176,48 @@ export default function Sidebar() {
             <Mic size={16} />
           </button>
         )}
+        {/* Music mini-player — shown when a track is loaded */}
+        {hasTrack && sidebarOpen && (
+          <div className="mb-1 px-1 py-1.5 rounded-lg bg-gray-200 dark:bg-surface-700">
+            {/* Track info */}
+            <div className="flex items-center gap-1.5 mb-1.5 px-1">
+              <Music size={11} className={`flex-shrink-0 ${isPlaying ? 'text-red-500' : 'text-gray-400'}`} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-medium text-gray-700 dark:text-gray-200 truncate leading-tight">{title}</p>
+                {artist && <p className="text-[9px] text-gray-400 truncate leading-tight">{artist}</p>}
+              </div>
+            </div>
+            {/* Controls */}
+            <div className="flex items-center justify-center gap-0.5">
+              <button onClick={() => sendCommand('prev')} title="Previous"
+                className="p-1.5 rounded hover:bg-gray-300 dark:hover:bg-surface-600 text-gray-500 dark:text-gray-400">
+                <SkipBack size={13} />
+              </button>
+              <button onClick={() => sendCommand(isPlaying ? 'pause' : 'play')} title={isPlaying ? 'Pause' : 'Play'}
+                className="p-1.5 rounded-full bg-red-500 hover:bg-red-600 text-white mx-1">
+                {isPlaying ? <Pause size={13} /> : <Play size={13} />}
+              </button>
+              <button onClick={() => sendCommand('next')} title="Next"
+                className="p-1.5 rounded hover:bg-gray-300 dark:hover:bg-surface-600 text-gray-500 dark:text-gray-400">
+                <SkipForward size={13} />
+              </button>
+            </div>
+          </div>
+        )}
+        {hasTrack && !sidebarOpen && (
+          <button onClick={() => sendCommand(isPlaying ? 'pause' : 'play')} title={isPlaying ? 'Pause' : 'Play'}
+            className={`w-full flex items-center justify-center p-2 rounded mb-1 ${isPlaying ? 'text-red-500 hover:bg-gray-200 dark:hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700'}`}>
+            {isPlaying ? <Pause size={15} /> : <Play size={15} />}
+          </button>
+        )}
+        <button
+          onClick={() => setShowMusicPlayer(m => !m)}
+          className={`flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 mb-1 transition-colors ${showMusicPlayer ? 'text-red-500' : 'text-gray-600 dark:text-gray-400'}`}
+          title="Music Player"
+        >
+          <Music size={16} />
+          {sidebarOpen && 'Music'}
+        </button>
         <button
           onClick={toggleDarkMode}
           className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
@@ -188,6 +233,11 @@ export default function Sidebar() {
         <Suspense fallback={null}>
           <MeetingNoteModal onClose={() => setShowMeetingModal(false)} />
         </Suspense>
+      )}
+
+      {/* Music player — floating overlay */}
+      {showMusicPlayer && (
+        <MusicPlayer onClose={() => setShowMusicPlayer(false)} />
       )}
     </div>
   )

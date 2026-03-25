@@ -134,7 +134,9 @@ export default function GraphView() {
   const allTags = useMemo(() => {
     const set = new Set<string>()
     for (const n of index.values()) {
-      ;(n.frontmatter.tags as string[] | undefined)?.forEach(t => set.add(t))
+      const raw = n.frontmatter.tags
+      const tags = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
+      tags.forEach((t: string) => set.add(t))
     }
     return [...set].sort()
   }, [index])
@@ -178,7 +180,7 @@ export default function GraphView() {
         x: pos?.x ?? cx + Math.cos(angle) * r,
         y: pos?.y ?? cy + Math.sin(angle) * r,
         vx: 0, vy: 0,
-        tags: (n.frontmatter.tags as string[] | undefined) ?? [],
+        tags: Array.isArray(n.frontmatter.tags) ? n.frontmatter.tags : typeof n.frontmatter.tags === 'string' ? [n.frontmatter.tags] : [],
         links: linkCount.get(n.path) ?? 0,
       }
     })
@@ -448,9 +450,11 @@ export default function GraphView() {
               </div>
               <div className="space-y-0.5 max-h-44 overflow-y-auto scrollbar-thin">
                 {allTags.map(t => {
-                  const count = [...index.values()].filter(n =>
-                    (n.frontmatter.tags as string[] | undefined)?.includes(t)
-                  ).length
+                  const count = [...index.values()].filter(n => {
+                    const raw = n.frontmatter.tags
+                    const tags = Array.isArray(raw) ? raw : typeof raw === 'string' ? [raw] : []
+                    return tags.includes(t)
+                  }).length
                   const active = filterTag === t
                   return (
                     <button
@@ -506,11 +510,11 @@ export default function GraphView() {
                   <p className="text-sm text-gray-700 dark:text-gray-300">{String(selectedNote.frontmatter.date)}</p>
                 </div>
               )}
-              {(selectedNote.frontmatter.tags as string[] | undefined)?.length ? (
+              {(() => { const t = selectedNote.frontmatter.tags; return Array.isArray(t) ? t : typeof t === 'string' ? [t] : [] })().length ? (
                 <div>
                   <p className="text-xs text-gray-400 mb-1">Tags</p>
                   <div className="flex flex-wrap gap-1">
-                    {(selectedNote.frontmatter.tags as string[]).map(t => (
+                    {((): string[] => { const t = selectedNote.frontmatter.tags; return Array.isArray(t) ? t : typeof t === 'string' ? [t] : [] })().map(t => (
                       <button
                         key={t}
                         onClick={() => setFilterTag(filterTag === t ? '' : t)}

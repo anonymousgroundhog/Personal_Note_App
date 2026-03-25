@@ -1,6 +1,7 @@
-import React, { useState, useCallback, useMemo } from 'react'
-import { FileText, Plus, Search, Edit3, Clock, X } from 'lucide-react'
+import React, { useState, useMemo } from 'react'
+import { FileText, Plus, Search, Edit3, Clock, X, Network } from 'lucide-react'
 import NoteTabEditor from './NoteTabEditor'
+import GraphView from '../graph/GraphView'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
 import { todayIso } from '../../lib/fs/pathUtils'
@@ -9,6 +10,7 @@ export default function EditorView() {
   const { openTabs, activeTabPath, openTab, closeTab, setActiveTab } = useUiStore()
   const { createNote, index } = useVaultStore()
   const [searchQuery, setSearchQuery] = useState('')
+  const [subView, setSubView] = useState<'notes' | 'graph'>('notes')
 
   const handleNewNote = async () => {
     const name = prompt('Note name:')
@@ -40,14 +42,41 @@ export default function EditorView() {
       .slice(0, 12)
   }, [index, searchQuery])
 
+  const SubViewTabs = () => (
+    <div className="flex items-center gap-1 border-b border-gray-200 dark:border-gray-700 px-3 flex-shrink-0">
+      <button
+        onClick={() => setSubView('notes')}
+        className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${subView === 'notes' ? 'border-accent-500 text-accent-500 font-medium' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+      >
+        <FileText size={14} />
+        Notes
+      </button>
+      <button
+        onClick={() => setSubView('graph')}
+        className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 transition-colors ${subView === 'graph' ? 'border-accent-500 text-accent-500 font-medium' : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'}`}
+      >
+        <Network size={14} />
+        Graph
+      </button>
+    </div>
+  )
+
+  if (subView === 'graph') {
+    return (
+      <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-surface-900">
+        <SubViewTabs />
+        <GraphView />
+      </div>
+    )
+  }
+
   // Show landing view when no tabs are open
   if (openTabs.length === 0) {
     return (
       <div className="flex-1 flex flex-col bg-white dark:bg-surface-900 overflow-hidden">
+        <SubViewTabs />
         {/* Header bar */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <FileText size={18} className="text-accent-500" />
-          <span className="text-sm font-semibold text-gray-700 dark:text-gray-200">Notes</span>
           <div className="ml-auto">
             <button
               onClick={handleNewNote}
@@ -138,6 +167,7 @@ export default function EditorView() {
   // Show tabs and editor when notes are open
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-white dark:bg-surface-900">
+      <SubViewTabs />
       {/* Tab bar */}
       <div className="flex items-center gap-2 px-2 py-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto scrollbar-thin flex-shrink-0">
         {openTabs.map(path => {

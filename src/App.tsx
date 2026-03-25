@@ -1,11 +1,8 @@
 import React, { useEffect } from 'react'
 import Sidebar from './components/Layout/Sidebar'
 import EditorView from './features/editor/EditorView'
-import GanttView from './features/gantt/GanttView'
 import CalendarView from './features/calendar/CalendarView'
 import TagBrowser from './features/tags/TagBrowser'
-import GraphView from './features/graph/GraphView'
-import TasksView from './features/tasks/TasksView'
 import SyncView from './features/sync/SyncView'
 import DiagramEditor from './features/diagram/DiagramEditor'
 import AiView from './features/ai/AiView'
@@ -16,6 +13,7 @@ import FinanceView from './features/finance/FinanceView'
 import SecurityView from './features/security/SecurityView'
 import CommunicationsView from './features/communications/CommunicationsView'
 import HelpView from './features/help/HelpView'
+import AccessibilityView from './features/accessibility/AccessibilityView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -94,6 +92,8 @@ export default function App() {
           <SecurityView />
         ) : activeView === 'communications' ? (
           <CommunicationsView />
+        ) : activeView === 'accessibility' ? (
+          <AccessibilityView />
         ) : activeView === 'help' ? (
           <HelpView />
         ) : !hasVault ? (
@@ -101,12 +101,9 @@ export default function App() {
         ) : (
           <>
             {activeView === 'notes' && <EditorView />}
-            {activeView === 'gantt' && <GanttView />}
             {activeView === 'calendar' && <CalendarView />}
             {activeView === 'tags' && <TagBrowser />}
-            {activeView === 'graph' && <GraphView />}
-            {activeView === 'tasks' && <TasksView />}
-          </>
+            </>
         )}
       </main>
       <CommandPalette />
