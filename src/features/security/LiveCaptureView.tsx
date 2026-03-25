@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react'
-import { AlertTriangle, Play, Square, Download, Trash2, ChevronRight, ChevronDown, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Play, Square, Download, Trash2, ChevronRight, ChevronDown, RefreshCw, X, BookOpen } from 'lucide-react'
+import { ExportModal } from './PcapAnalyzerView'
 
 const GIT_SERVER = 'http://localhost:3001'
 
@@ -137,6 +138,60 @@ function StatBadge({ label, value, color = 'gray' }: { label: string; value: str
   )
 }
 
+// ---- Note builder for live capture ----
+
+function buildLiveCaptureNote(packets: LivePacket[], iface: string, bpfFilter: string, elapsed: number): string {
+  const now = new Date().toISOString().slice(0, 10)
+  const ts  = new Date().toISOString().slice(0, 19).replace('T', ' ')
+  const lines: string[] = []
+  lines.push(`---`)
+  lines.push(`title: Live Capture — ${iface} — ${ts}`)
+  lines.push(`date: ${now}`)
+  lines.push(`tags: [security, pcap, live-capture]`)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`# Live Capture: ${iface}`)
+  lines.push(``)
+  lines.push(`| Metric | Value |`)
+  lines.push(`|--------|-------|`)
+  lines.push(`| Interface | ${iface} |`)
+  lines.push(`| BPF Filter | ${bpfFilter || '(none)'} |`)
+  lines.push(`| Duration | ${elapsed}s |`)
+  lines.push(`| Packets Captured | ${packets.length} |`)
+  lines.push(`| Captured At | ${ts} |`)
+  lines.push(``)
+
+  // Protocol breakdown
+  const protoCount: Record<string, number> = {}
+  for (const p of packets) protoCount[p.proto] = (protoCount[p.proto] ?? 0) + 1
+  const sorted = Object.entries(protoCount).sort((a, b) => b[1] - a[1])
+  if (sorted.length > 0) {
+    lines.push(`## Protocol Breakdown`)
+    lines.push(``)
+    lines.push(`| Protocol | Count | % |`)
+    lines.push(`|----------|-------|---|`)
+    for (const [proto, cnt] of sorted) {
+      const pct = ((cnt / packets.length) * 100).toFixed(1)
+      lines.push(`| ${proto} | ${cnt} | ${pct}% |`)
+    }
+    lines.push(``)
+  }
+
+  // Packet table (up to 500)
+  lines.push(`## Packets${packets.length > 500 ? ` (first 500 of ${packets.length})` : ` (${packets.length})`}`)
+  lines.push(``)
+  lines.push(`| No. | Time | Source | Destination | Proto | Info |`)
+  lines.push(`|-----|------|--------|-------------|-------|------|`)
+  for (const p of packets.slice(0, 500)) {
+    const src = p.src + (p.sport ? `:${p.sport}` : '')
+    const dst = p.dst + (p.dport ? `:${p.dport}` : '')
+    const info = p.info.replace(/\|/g, '\\|').slice(0, 80)
+    lines.push(`| ${p.no} | ${p.time.toFixed(4)} | ${src} | ${dst} | ${p.proto} | ${info} |`)
+  }
+  lines.push(``)
+  return lines.join('\n')
+}
+
 // ---- Main component ----
 
 export default function LiveCaptureView() {
@@ -157,6 +212,7 @@ export default function LiveCaptureView() {
   const [elapsed, setElapsed] = useState(0)
   const [autoScroll, setAutoScroll] = useState(true)
   const [permissionError, setPermissionError] = useState(false)
+  const [exportContext, setExportContext] = useState<{ content: string; defaultName: string; title: string } | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
   const listRef  = useRef<HTMLDivElement>(null)
@@ -448,6 +504,20 @@ export default function LiveCaptureView() {
               </button>
             )}
 
+            {packets.length > 0 && (
+              <button
+                onClick={() => setExportContext({
+                  content: buildLiveCaptureNote(packets, iface, bpfFilter, elapsed),
+                  defaultName: `live-capture-${iface}-${new Date().toISOString().slice(0,10)}`,
+                  title: 'Export Capture to Note',
+                })}
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+              >
+                <BookOpen size={14} />
+                Export to Note
+              </button>
+            )}
+
             {(captureState === 'stopped' || packets.length > 0) && (
               <button
                 onClick={clearCapture}
@@ -627,6 +697,15 @@ export default function LiveCaptureView() {
           )}
         </div>
       </div>
+
+      {exportContext && (
+        <ExportModal
+          content={exportContext.content}
+          defaultName={exportContext.defaultName}
+          title={exportContext.title}
+          onClose={() => setExportContext(null)}
+        />
+      )}
     </div>
   )
 }

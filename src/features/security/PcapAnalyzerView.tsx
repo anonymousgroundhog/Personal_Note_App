@@ -150,8 +150,9 @@ const ROLE_ICON: Record<string, string> = {
 // ---- Export to Note modal ----
 
 interface ExportModalProps {
-  result: PcapResult
-  fileName: string
+  content: string
+  defaultName: string
+  title?: string
   onClose: () => void
 }
 
@@ -265,6 +266,148 @@ function buildNoteContent(result: PcapResult, fileName: string): string {
   return lines.join('\n')
 }
 
+function buildNetworkNoteContent(result: PcapResult, fileName: string): string {
+  const now = new Date().toISOString().slice(0, 10)
+  const nodes = result.topology.nodes
+  const edges = result.topology.edges
+  const lines: string[] = []
+
+  lines.push(`---`)
+  lines.push(`title: Network Diagram — ${fileName}`)
+  lines.push(`date: ${now}`)
+  lines.push(`tags: [security, pcap, network-diagram]`)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`# Network Topology: ${fileName}`)
+  lines.push(``)
+
+  // ── ASCII topology diagram ──────────────────────────────────────────────────
+  // Build an adjacency-list text diagram showing each host and its connections
+  if (nodes.length > 0) {
+    lines.push(`## Topology Diagram`)
+    lines.push(``)
+    lines.push(`\`\`\``)
+
+    // Group edges by source for an adjacency-list style diagram
+    const adjMap: Record<string, { dst: string; proto: string; bytes: number }[]> = {}
+    for (const e of edges) {
+      if (!adjMap[e.src]) adjMap[e.src] = []
+      adjMap[e.src].push({ dst: e.dst, proto: e.protocol, bytes: e.bytes })
+    }
+
+    // Role icons in plain text
+    const roleIcon: Record<string, string> = {
+      gateway: '[GW]', dns_server: '[DNS]', server: '[SRV]',
+      client: '[CLI]', 'dns-server': '[DNS]', 'web-server': '[WEB]',
+      external: '[EXT]', 'external-https': '[EXT]', 'external-http': '[EXT]',
+      host: '[HST]', unknown: '[?]',
+    }
+
+    const labelOf = (n: TopologyNode) => n.label.length > 35 ? n.label.slice(0, 34) + '…' : n.label
+
+    for (const n of nodes) {
+      const icon = roleIcon[n.role] ?? '[?]'
+      lines.push(`${icon} ${labelOf(n)}  (↑${n.packets_sent} pkts sent, ↓${n.packets_recv} pkts recv)`)
+      const conns = adjMap[n.id] ?? []
+      for (const c of conns) {
+        const dstNode = nodes.find(x => x.id === c.dst)
+        const dstLabel = dstNode ? labelOf(dstNode) : c.dst
+        lines.push(`    ──[${c.proto || '?'} ${formatBytes(c.bytes)}]──▶ ${dstLabel}`)
+      }
+    }
+    lines.push(`\`\`\``)
+    lines.push(``)
+  }
+
+  // ── Hosts table ─────────────────────────────────────────────────────────────
+  lines.push(`## Hosts (${nodes.length})`)
+  lines.push(``)
+  lines.push(`| Icon | Host | Role | Pkts Sent | Pkts Recv |`)
+  lines.push(`|------|------|------|-----------|-----------|`)
+  for (const n of nodes) {
+    const icon = { gateway:'🌐', dns_server:'🔍', server:'🖥️', client:'💻', 'dns-server':'🔍',
+                   'web-server':'🖥️', external:'🌍', 'external-https':'🌍', host:'💻' }[n.role] ?? '❓'
+    lines.push(`| ${icon} | ${n.label} | ${n.role} | ${n.packets_sent} | ${n.packets_recv} |`)
+  }
+  lines.push(``)
+
+  // ── Connections ──────────────────────────────────────────────────────────────
+  if (edges.length > 0) {
+    lines.push(`## Connections (top ${Math.min(edges.length, 50)} by volume)`)
+    lines.push(``)
+    lines.push(`| Source | Destination | Protocol | Bytes |`)
+    lines.push(`|--------|-------------|----------|-------|`)
+    for (const e of edges.slice(0, 50)) {
+      lines.push(`| ${e.src} | ${e.dst} | ${e.protocol || '?'} | ${formatBytes(e.bytes)} |`)
+    }
+    lines.push(``)
+  }
+
+  // ── ARP table ────────────────────────────────────────────────────────────────
+  if (Object.keys(result.arp_table).length > 0) {
+    lines.push(`## ARP Table`)
+    lines.push(``)
+    lines.push(`| IP Address | MAC Address |`)
+    lines.push(`|------------|-------------|`)
+    for (const [ip, mac] of Object.entries(result.arp_table)) {
+      lines.push(`| ${ip} | ${mac} |`)
+    }
+    lines.push(``)
+  }
+
+  return lines.join('\n')
+}
+
+function buildPacketsNoteContent(packets: Packet[], fileName: string, filter: string): string {
+  const now = new Date().toISOString().slice(0, 10)
+  const lines: string[] = []
+
+  lines.push(`---`)
+  lines.push(`title: Packet List — ${fileName}${filter ? ` [filter: ${filter}]` : ''}`)
+  lines.push(`date: ${now}`)
+  lines.push(`tags: [security, pcap, packets]`)
+  lines.push(`---`)
+  lines.push(``)
+  lines.push(`# Packet List: ${fileName}`)
+  lines.push(``)
+  if (filter) {
+    lines.push(`**Filter:** \`${filter}\``)
+    lines.push(``)
+  }
+  lines.push(`**${packets.length} packets**${packets.length > 500 ? ` (first 500 shown)` : ''}`)
+  lines.push(``)
+
+  // ── Exact packet table matching the on-screen view ──────────────────────────
+  // Column widths matching the UI grid: No / Time / Source / Destination / Proto / Len / Info
+  lines.push(`| No. | Time (s) | Source | Destination | Proto | Len | Info |`)
+  lines.push(`|-----|----------|--------|-------------|-------|-----|------|`)
+  for (const p of packets.slice(0, 500)) {
+    const src  = p.src  + (p.sport ? `:${p.sport}`  : '')
+    const dst  = p.dst  + (p.dport ? `:${p.dport}`  : '')
+    const info = p.info.replace(/\|/g, '\\|')
+    lines.push(`| ${p.no} | ${p.time.toFixed(6)} | ${src} | ${dst} | ${p.proto} | ${p.len} | ${info} |`)
+  }
+  lines.push(``)
+
+  // ── Protocol summary ─────────────────────────────────────────────────────────
+  const protoCount: Record<string, number> = {}
+  for (const p of packets) protoCount[p.proto] = (protoCount[p.proto] ?? 0) + 1
+  const sorted = Object.entries(protoCount).sort((a, b) => b[1] - a[1])
+  if (sorted.length > 0) {
+    lines.push(`## Protocol Summary`)
+    lines.push(``)
+    lines.push(`| Protocol | Count | % |`)
+    lines.push(`|----------|-------|---|`)
+    for (const [proto, cnt] of sorted) {
+      const pct = ((cnt / packets.length) * 100).toFixed(1)
+      lines.push(`| ${proto} | ${cnt} | ${pct}% |`)
+    }
+    lines.push(``)
+  }
+
+  return lines.join('\n')
+}
+
 // ---- Packet Viewer ----
 
 const PROTO_COLORS: Record<string, string> = {
@@ -326,9 +469,10 @@ function PacketDetail({ pkt }: { pkt: Packet }) {
 
 interface PacketViewerProps {
   tmpPath: string
+  onExport?: (packets: Packet[], filter: string) => void
 }
 
-function PacketViewer({ tmpPath }: PacketViewerProps) {
+function PacketViewer({ tmpPath, onExport }: PacketViewerProps) {
   const [packets, setPackets] = useState<Packet[]>([])
   const [total, setTotal] = useState(0)
   const [totalUnfiltered, setTotalUnfiltered] = useState(0)
@@ -394,7 +538,7 @@ function PacketViewer({ tmpPath }: PacketViewerProps) {
   const selectedPkt = packets.find(p => p.no === selectedNo) ?? null
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Filter bar */}
       <div className="flex items-center gap-2 p-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800">
         <div className="flex-1 flex items-center gap-1 bg-white dark:bg-surface-700 border border-gray-300 dark:border-gray-600 rounded px-2">
@@ -425,6 +569,14 @@ function PacketViewer({ tmpPath }: PacketViewerProps) {
             : `${totalUnfiltered.toLocaleString()} pkts`
           }
         </span>
+        {onExport && packets.length > 0 && (
+          <button
+            onClick={() => onExport(packets, filter)}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-xs rounded bg-indigo-500 hover:bg-indigo-600 text-white font-medium whitespace-nowrap"
+          >
+            <BookOpen size={11} /> Export to Note
+          </button>
+        )}
       </div>
 
       {error && <p className="text-xs text-red-500 px-3 py-2">{error}</p>}
@@ -493,12 +645,12 @@ function PacketViewer({ tmpPath }: PacketViewerProps) {
   )
 }
 
-function ExportModal({ result, fileName, onClose }: ExportModalProps) {
+export function ExportModal({ content, defaultName, title = 'Export to Note', onClose }: ExportModalProps) {
   const { index, createNote, saveNote, readNote, refreshIndex, rootHandle, fallbackMode } = useVaultStore()
   const vaultOpen = rootHandle !== null || fallbackMode
 
   const [mode, setMode] = useState<'new' | 'append'>('new')
-  const [newName, setNewName] = useState(`pcap-${fileName.replace(/\.pcap(ng)?$/i, '').replace(/[^a-z0-9_-]/gi, '-')}`)
+  const [newName, setNewName] = useState(defaultName)
   const [selectedPath, setSelectedPath] = useState('')
   const [search, setSearch] = useState('')
   const [saving, setSaving] = useState(false)
@@ -512,8 +664,6 @@ function ExportModal({ result, fileName, onClose }: ExportModalProps) {
       return !q || name.toLowerCase().includes(q) || path.toLowerCase().includes(q)
     })
     .sort((a, b) => a.name.localeCompare(b.name))
-
-  const content = buildNoteContent(result, fileName)
 
   const handleSave = async () => {
     if (!vaultOpen) { setError('Open a vault first'); return }
@@ -544,7 +694,7 @@ function ExportModal({ result, fileName, onClose }: ExportModalProps) {
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2">
             <BookOpen size={16} className="text-emerald-500" />
-            <span className="font-semibold text-gray-800 dark:text-gray-100">Export Analysis to Note</span>
+            <span className="font-semibold text-gray-800 dark:text-gray-100">{title}</span>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"><X size={16} /></button>
         </div>
@@ -700,7 +850,7 @@ export default function PcapAnalyzerView() {
   const [result, setResult] = useState<PcapResult | null>(null)
   const [tmpPath, setTmpPath] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<ResultTab>('summary')
-  const [showExport, setShowExport] = useState(false)
+  const [exportContext, setExportContext] = useState<{ content: string; defaultName: string; title: string } | null>(null)
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [dnsFilter, setDnsFilter] = useState('')
   const [threatFilter, setThreatFilter] = useState<string>('all')
@@ -952,9 +1102,13 @@ export default function PcapAnalyzerView() {
             {status === 'uploading' ? '⏳ Uploading… (Cancel)' : status === 'analyzing' ? '⏳ Analyzing… (Cancel)' : '▶ Analyze'}
           </button>
 
-          {result && (
+          {result && file && (
             <button
-              onClick={() => setShowExport(true)}
+              onClick={() => setExportContext({
+                content: buildNoteContent(result, file.name),
+                defaultName: `pcap-${file.name.replace(/\.pcap(ng)?$/i, '').replace(/[^a-z0-9_-]/gi, '-')}`,
+                title: 'Export Analysis to Note',
+              })}
               className="w-full py-2 rounded-lg text-sm font-medium bg-indigo-500 hover:bg-indigo-600 text-white transition-colors flex items-center justify-center gap-2"
             >
               <BookOpen size={14} /> Export to Note
@@ -1016,7 +1170,7 @@ export default function PcapAnalyzerView() {
               ))}
             </div>
 
-            <div className={`flex-1 overflow-y-auto scrollbar-thin p-4 ${activeTab === 'packets' ? 'hidden' : ''}`}>
+            {activeTab !== 'packets' && <div className="flex-1 overflow-y-auto scrollbar-thin p-4">
               {/* ---- SUMMARY ---- */}
               {activeTab === 'summary' && (
                 <div className="space-y-4">
@@ -1231,6 +1385,21 @@ export default function PcapAnalyzerView() {
               {/* ---- NETWORK MAP ---- */}
               {activeTab === 'network' && (
                 <div className="space-y-4">
+                  {/* Export button */}
+                  {file && (
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => setExportContext({
+                          content: buildNetworkNoteContent(result, file.name),
+                          defaultName: `network-${file.name.replace(/\.pcap(ng)?$/i, '').replace(/[^a-z0-9_-]/gi, '-')}`,
+                          title: 'Export Network Diagram to Note',
+                        })}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded bg-indigo-500 hover:bg-indigo-600 text-white transition-colors"
+                      >
+                        <BookOpen size={12} /> Export to Note
+                      </button>
+                    </div>
+                  )}
                   {/* SVG topology */}
                   <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-700 overflow-hidden" style={{ minHeight: 300 }}>
                     <TopologyMap nodes={result.topology.nodes} edges={result.topology.edges} />
@@ -1267,12 +1436,19 @@ export default function PcapAnalyzerView() {
                   )}
                 </div>
               )}
-            </div>
+            </div>}
 
             {/* ---- PACKETS (full-height, manages own scroll) ---- */}
             {activeTab === 'packets' && tmpPath && (
-              <div className="flex-1 overflow-hidden">
-                <PacketViewer tmpPath={tmpPath} />
+              <div className="flex-1 min-h-0 flex flex-col">
+                <PacketViewer
+                  tmpPath={tmpPath}
+                  onExport={file ? (pkts, f) => setExportContext({
+                    content: buildPacketsNoteContent(pkts, file.name, f),
+                    defaultName: `packets-${file.name.replace(/\.pcap(ng)?$/i, '').replace(/[^a-z0-9_-]/gi, '-')}`,
+                    title: 'Export Packets to Note',
+                  }) : undefined}
+                />
               </div>
             )}
           </div>
@@ -1296,8 +1472,13 @@ export default function PcapAnalyzerView() {
         )}
       </div>
 
-      {showExport && result && file && (
-        <ExportModal result={result} fileName={file.name} onClose={() => setShowExport(false)} />
+      {exportContext && (
+        <ExportModal
+          content={exportContext.content}
+          defaultName={exportContext.defaultName}
+          title={exportContext.title}
+          onClose={() => setExportContext(null)}
+        />
       )}
     </div>
   )
