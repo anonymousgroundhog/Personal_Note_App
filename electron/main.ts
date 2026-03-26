@@ -25,8 +25,9 @@ function createWindow() {
     },
   })
 
+  const vitePort = process.env.VITE_PORT || '5173'
   const url = isDev
-    ? 'http://localhost:5173'
+    ? `http://localhost:${vitePort}`
     : `file://${path.join(__dirname, '../dist/index.html')}`
 
   mainWindow.loadURL(url)
