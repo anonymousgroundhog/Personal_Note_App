@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react'
 import {
   Bot, Settings, Send, Square, Trash2, ChevronDown, ChevronUp,
-  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2, Edit3, Mic, MicOff, Volume2, VolumeX,
+  Loader2, AlertCircle, CheckCircle2, FileText, X, Plus, RefreshCw, Wand2, Edit3, Mic, MicOff, Volume2, VolumeX, BookOpen,
 } from 'lucide-react'
 import { useAiStore } from '../../stores/aiStore'
 import { useVaultStore } from '../../stores/vaultStore'
@@ -370,6 +370,83 @@ function ServerSettingsPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Prompt writing guide ─────────────────────────────────────────────────────
+function PromptGuidePanel({ onClose }: { onClose: () => void }) {
+  const tips = [
+    {
+      title: 'Be specific',
+      desc: 'Tell the AI exactly what you want. Instead of "summarise this", try "summarise this in 3 bullet points for a non-technical audience".',
+      example: '"List the top 5 risks in this project plan, ranked by impact."',
+    },
+    {
+      title: 'Give context',
+      desc: 'Explain who you are, what you\'re working on, and why. The more context the AI has, the more relevant its answer.',
+      example: '"I\'m a nurse writing a patient handover. Simplify this medical note for a colleague."',
+    },
+    {
+      title: 'Assign a role',
+      desc: 'Ask the AI to act as an expert. This shapes the tone and depth of the response.',
+      example: '"Act as a senior software engineer. Review this code for security issues."',
+    },
+    {
+      title: 'Specify the format',
+      desc: 'State how you want the output — a list, a table, a short paragraph, JSON, etc.',
+      example: '"Return a markdown table with columns: Task, Owner, Deadline."',
+    },
+    {
+      title: 'Set constraints',
+      desc: 'Limit the response to keep it focused. Word counts, reading levels, and tone all help.',
+      example: '"Explain this in under 100 words using plain English."',
+    },
+    {
+      title: 'Use examples',
+      desc: 'Show the AI what good looks like by including a sample of the output you want.',
+      example: '"Rewrite each sentence like this example: Original → Rewritten."',
+    },
+    {
+      title: 'Ask step-by-step',
+      desc: 'For complex tasks, ask the AI to reason through each step before giving a final answer.',
+      example: '"Think step by step: what are the pros and cons, then give your recommendation."',
+    },
+    {
+      title: 'Iterate and refine',
+      desc: 'If the first answer isn\'t quite right, follow up. Tell the AI what to change rather than starting over.',
+      example: '"Make that more concise" / "Add more technical detail" / "Rewrite in a friendlier tone".',
+    },
+  ]
+
+  return (
+    <div className="border-b border-gray-200 dark:border-gray-700 bg-amber-50 dark:bg-amber-900/10">
+      <div className="p-4 max-w-4xl">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <BookOpen size={15} className="text-amber-600 dark:text-amber-400" />
+            <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">How to write better AI prompts</h3>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-amber-600 dark:text-amber-400 hover:text-amber-800 dark:hover:text-amber-200 p-0.5 rounded"
+          >
+            <ChevronUp size={16} />
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {tips.map(tip => (
+            <div key={tip.title} className="bg-white dark:bg-surface-800 rounded-lg border border-amber-200 dark:border-amber-800/50 p-3">
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-0.5">{tip.title}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-1.5">{tip.desc}</p>
+              <p className="text-[11px] text-gray-500 dark:text-gray-500 italic border-l-2 border-amber-300 dark:border-amber-700 pl-2">{tip.example}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-amber-600/70 dark:text-amber-500/60 mt-3">
+          Tip: use the <strong>Improve</strong> button (✦) in the input bar to automatically rewrite your prompt before sending.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── Main AiView ──────────────────────────────────────────────────────────────
 export default function AiView() {
   const {
@@ -381,6 +458,7 @@ export default function AiView() {
 
   const [input, setInput] = useState('')
   const [showSettings, setShowSettings] = useState(!activeProfileId)
+  const [showPromptGuide, setShowPromptGuide] = useState(false)
   const [showNotePicker, setShowNotePicker] = useState(false)
   const [selectedNotes, setSelectedNotes] = useState<Set<string>>(new Set())
   const [isImproving, setIsImproving] = useState(false)
@@ -538,6 +616,14 @@ export default function AiView() {
             </button>
           )}
           <button
+            onClick={() => setShowPromptGuide(v => !v)}
+            title="Prompt writing tips"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${showPromptGuide ? 'bg-amber-500 text-white' : 'border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700'}`}
+          >
+            <BookOpen size={14} />
+            {showPromptGuide ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </button>
+          <button
             onClick={() => setShowSettings(v => !v)}
             title="Connection settings"
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-sm transition-colors ${showSettings ? 'bg-accent-500 text-white' : 'border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700'}`}
@@ -550,6 +636,9 @@ export default function AiView() {
 
       {/* Connection settings panel */}
       {showSettings && <ServerSettingsPanel onClose={() => setShowSettings(false)} />}
+
+      {/* Prompt guide panel */}
+      {showPromptGuide && <PromptGuidePanel onClose={() => setShowPromptGuide(false)} />}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">

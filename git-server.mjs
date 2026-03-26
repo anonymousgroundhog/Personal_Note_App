@@ -577,20 +577,38 @@ const server = createServer(async (req, res) => {
       return
     }
 
-    // /ai/chat — try OpenWebUI path first, then standard OpenAI-compat path
+    // /ai/chat — try OpenWebUI, then OpenAI-compat, then native Ollama
+    // Each entry: [path, isOllama]
+    const chatPaths = [
+      ['/api/chat/completions', false],
+      ['/v1/chat/completions',  false],
+      ['/api/chat',             true ],  // native Ollama NDJSON format
+    ]
     let upstream = null
     let lastChatErr = ''
-    const chatPaths = ['/api/chat/completions', '/v1/chat/completions']
-    for (const path of chatPaths) {
+    let upstreamIsOllama = false
+
+    for (const [path, isOllama] of chatPaths) {
       let r
-      // Use a 15 s timeout for the initial connection only — once headers arrive
-      // we know the server accepted the request and streaming can take any time.
       const connectTimeout = AbortSignal.timeout(15000)
+
+      // Ollama /api/chat uses a different request shape
+      let reqBody
+      if (isOllama) {
+        reqBody = JSON.stringify({
+          model: rest.model,
+          messages: rest.messages,
+          stream: rest.stream !== false,
+        })
+      } else {
+        reqBody = JSON.stringify(rest)
+      }
+
       try {
         r = await fetch(`${base}${path}`, {
           method: 'POST',
           headers,
-          body: JSON.stringify(rest),
+          body: reqBody,
           signal: connectTimeout,
         })
       } catch (e) {
@@ -598,10 +616,10 @@ const server = createServer(async (req, res) => {
         continue
       }
       if (r.status === 401 || r.status === 403) {
-        const errBody = await r.text()
-        res.writeHead(r.status, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: `Authentication failed (HTTP ${r.status}). Check your API key.`, detail: errBody }))
-        return
+        const errBody = await r.text().catch(() => '')
+        console.warn(`[ai/chat] ${r.status} on ${path}, trying next. Body: ${errBody.slice(0, 200)}`)
+        lastChatErr = `HTTP ${r.status} (authentication required) at ${path}`
+        continue
       }
       if (r.status === 404 || r.status === 405 || r.status === 400) {
         const errBody = await r.text().catch(() => '')
@@ -609,15 +627,18 @@ const server = createServer(async (req, res) => {
         lastChatErr = `HTTP ${r.status} at ${path}`
         continue
       }
-      // Once we have a successful response, detach from the connect timeout
-      // so the streaming body can flow without being cut off
       upstream = r
+      upstreamIsOllama = isOllama
       break
     }
+
     if (!upstream) {
+      const authHint = lastChatErr.includes('authentication')
+        ? ' The server requires an API key — set one in AI Chat settings.'
+        : ' Check your server URL and model name in AI Chat settings.'
       res.writeHead(502, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({
-        error: `AI server at ${base} rejected both chat endpoints (${chatPaths.join(', ')}). Last error: ${lastChatErr}. Check your server URL and model name in AI Chat settings.`
+        error: `AI server at ${base} rejected all chat endpoints. Last error: ${lastChatErr}.${authHint}`
       }))
       return
     }
@@ -627,25 +648,114 @@ const server = createServer(async (req, res) => {
       res.end(errText)
       return
     }
-    // Pipe the streaming SSE response straight through to the browser
+
+    const wantsStream = rest.stream !== false
+    const reader = upstream.body.getReader()
+    req.on('close', () => reader.cancel())
+
+    // ── Non-streaming: collect full response, normalise to OpenAI JSON ────────
+    if (!wantsStream) {
+      const decoder = new TextDecoder()
+      let raw = ''
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          raw += decoder.decode(value, { stream: true })
+        }
+      } finally {
+        reader.releaseLock()
+      }
+
+      let content = ''
+      if (upstreamIsOllama) {
+        // Ollama non-stream: single JSON object  {"message":{"content":"…"},"done":true}
+        // Ollama stream w/ stream:false still comes as NDJSON — collect last done line
+        const lines = raw.trim().split('\n')
+        for (const line of lines) {
+          try {
+            const obj = JSON.parse(line)
+            if (obj.message?.content) content += obj.message.content
+          } catch { /* skip */ }
+        }
+      } else {
+        // OpenAI-compat: may be a single JSON response or SSE lines
+        const trimmed = raw.trim()
+        if (trimmed.startsWith('{')) {
+          // Already JSON
+          try {
+            const obj = JSON.parse(trimmed)
+            content = obj.choices?.[0]?.message?.content ?? ''
+          } catch { /* fall through to SSE parse */ }
+        }
+        if (!content) {
+          // Parse as SSE stream and accumulate delta content
+          for (const line of trimmed.split('\n')) {
+            if (!line.startsWith('data: ')) continue
+            const data = line.slice(6).trim()
+            if (data === '[DONE]') continue
+            try {
+              const obj = JSON.parse(data)
+              content += obj.choices?.[0]?.delta?.content ?? obj.choices?.[0]?.message?.content ?? ''
+            } catch { /* skip */ }
+          }
+        }
+      }
+
+      const responseJson = { choices: [{ message: { role: 'assistant', content } }] }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(responseJson))
+      return
+    }
+
+    // ── Streaming: pipe SSE to browser ───────────────────────────────────────
     res.writeHead(200, {
-      'Content-Type': upstream.headers.get('content-type') || 'text/event-stream',
+      'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Transfer-Encoding': 'chunked',
-      
     })
-    const reader = upstream.body.getReader()
-    // Stop streaming if the browser disconnects
-    req.on('close', () => reader.cancel())
-    try {
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        res.write(value)
+
+    if (!upstreamIsOllama) {
+      // Pass-through for OpenAI-style SSE
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          res.write(value)
+        }
+      } finally {
+        reader.releaseLock()
+        res.end()
       }
-    } finally {
-      reader.releaseLock()
-      res.end()
+    } else {
+      // Translate Ollama NDJSON → OpenAI SSE
+      const decoder = new TextDecoder()
+      let buf = ''
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buf += decoder.decode(value, { stream: true })
+          const lines = buf.split('\n')
+          buf = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.trim()) continue
+            try {
+              const obj = JSON.parse(line)
+              if (obj.done) {
+                res.write('data: [DONE]\n\n')
+              } else {
+                const delta = obj.message?.content ?? ''
+                const chunk = { choices: [{ delta: { content: delta }, index: 0 }] }
+                res.write(`data: ${JSON.stringify(chunk)}\n\n`)
+              }
+            } catch { /* skip malformed lines */ }
+          }
+        }
+      } finally {
+        reader.releaseLock()
+        res.end()
+      }
     }
     return
   }
@@ -1940,6 +2050,37 @@ sys.stdout.flush()
   }
 
 
+  // GET /security/apk/browse — open a native file picker for selecting an APK file
+  if (req.method === 'GET' && url.pathname === '/security/apk/browse') {
+    setCors(res)
+    try {
+      const { stdout } = await execFileAsync('zenity', [
+        '--file-selection',
+        '--title=Select APK File',
+        '--file-filter=APK files (*.apk) | *.apk',
+        '--file-filter=All files | *',
+      ])
+      const selectedPath = stdout.trim()
+      if (!selectedPath) {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: selectedPath }))
+    } catch (e) {
+      // Exit code 1 = user cancelled
+      if (e.code === 1 || (e.stderr && e.stderr.includes('cancel'))) {
+        res.writeHead(204)
+        res.end()
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: e.message }))
+      }
+    }
+    return
+  }
+
   // POST /security/apk/upload — upload APK file to temp directory
   if (req.method === 'POST' && url.pathname === '/security/apk/upload') {
     setCors(res)
@@ -2332,6 +2473,138 @@ sys.stdout.flush()
     } catch (e) {
       throw new Error(`Failed to parse jimple folder: ${e.message}`)
     }
+  }
+
+  // POST /security/soot/run — run Soot on an APK to produce Jimple output (SSE stream)
+  if (req.method === 'POST' && url.pathname === '/security/soot/run') {
+    setCors(res)
+    try {
+      const body = await parseBody(req)
+      let { apkPath, outputDir, androidJarsPath } = body
+
+      apkPath = expandPath(apkPath)
+      outputDir = expandPath(outputDir || 'sootOutput')
+      androidJarsPath = expandPath(androidJarsPath || join(homedir(), 'Android/Sdk/platforms'))
+
+      if (!existsSync(apkPath)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `APK not found: ${apkPath}` }))
+        return
+      }
+
+      if (!existsSync(androidJarsPath)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Android platforms directory not found: ${androidJarsPath}` }))
+        return
+      }
+
+      // Locate soot jar and helper jars relative to server working directory
+      const sootJarDir = join(process.cwd(), 'soot_jar')
+      const sootJar = join(sootJarDir, 'soot-4.4.0-20220321.130129-1-jar-with-dependencies.jar')
+      const helperJars = readdirSync(sootJarDir)
+        .filter(f => f.endsWith('.jar') && !f.startsWith('soot-4.4.0'))
+        .map(f => join(sootJarDir, f))
+
+      if (!existsSync(sootJar)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Soot jar not found: ${sootJar}` }))
+        return
+      }
+
+      mkdirSync(outputDir, { recursive: true })
+
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      })
+
+      const sendSSE = (type, data) => {
+        res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`)
+      }
+
+      // Build classpath: soot jar + helper jars
+      const classpath = [sootJar, ...helperJars].join(':')
+
+      // Soot arguments for APK → Jimple conversion
+      const javaArgs = [
+        '-cp', classpath,
+        'soot.Main',
+        '-src-prec', 'apk',
+        '-process-dir', apkPath,
+        '-android-jars', androidJarsPath,
+        '-d', outputDir,
+        '-output-format', 'J',    // J = Jimple
+        '-allow-phantom-refs',
+        '-whole-program',
+        '-p', 'cg', 'enabled:false',  // skip call-graph to speed up plain IR dump
+      ]
+
+      sendSSE('log', { message: `Starting Soot...` })
+      sendSSE('log', { message: `APK: ${apkPath}` })
+      sendSSE('log', { message: `Output: ${outputDir}` })
+      sendSSE('log', { message: `java ${javaArgs.join(' ')}` })
+      sendSSE('log', { message: '' })
+
+      const child = spawn('java', javaArgs, { cwd: process.cwd() })
+
+      child.stdout.on('data', d => {
+        d.toString().split('\n').filter(l => l.trim()).forEach(l => sendSSE('log', { message: l }))
+      })
+      child.stderr.on('data', d => {
+        d.toString().split('\n').filter(l => l.trim()).forEach(l => sendSSE('log', { message: l }))
+      })
+
+      child.on('close', code => {
+        if (code === 0) {
+          sendSSE('log', { message: '' })
+          sendSSE('log', { message: `Done. Jimple files written to: ${outputDir}` })
+          sendSSE('done', {})
+        } else {
+          sendSSE('error', { message: `Soot exited with code ${code}` })
+          sendSSE('done', {})
+        }
+        res.end()
+      })
+
+      req.on('close', () => {
+        try { child.kill() } catch { /* already done */ }
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // GET /security/jimple/browse — open a native folder picker and return the selected path
+  if (req.method === 'GET' && url.pathname === '/security/jimple/browse') {
+    setCors(res)
+    try {
+      const titleParam = url.searchParams.get('title') || 'Select Jimple Folder'
+      const { stdout, stderr } = await execFileAsync('zenity', [
+        '--file-selection', '--directory',
+        `--title=${titleParam}`,
+      ])
+      const selectedPath = stdout.trim()
+      if (!selectedPath) {
+        res.writeHead(204)
+        res.end()
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: selectedPath }))
+    } catch (e) {
+      // Exit code 1 means user cancelled — return 204
+      if (e.code === 1 || (e.stderr && e.stderr.includes('cancel'))) {
+        res.writeHead(204)
+        res.end()
+      } else {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: e.message }))
+      }
+    }
+    return
   }
 
   // POST /security/jimple/analyze — analyze jimple files from a folder

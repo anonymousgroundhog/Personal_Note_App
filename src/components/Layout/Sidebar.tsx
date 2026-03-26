@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Calendar, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -9,9 +9,176 @@ import { useMusicStore } from '../../features/music/musicStore'
 
 const MeetingNoteModal = lazy(() => import('../../features/meeting/MeetingNoteModal'))
 
+function NoteMethodsPanel({ onClose }: { onClose: () => void }) {
+  const [activeTab, setActiveTab] = useState<'zettelkasten' | 'systems'>('zettelkasten')
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-surface-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-2xl max-h-[85vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <BookMarked size={18} className="text-accent-500" />
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Note-Taking Methods</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 dark:border-gray-700 px-5">
+          {(['zettelkasten', 'systems'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`py-2.5 px-3 text-sm font-medium border-b-2 transition-colors -mb-px ${
+                activeTab === tab
+                  ? 'border-accent-500 text-accent-600 dark:text-accent-400'
+                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+              }`}
+            >
+              {tab === 'zettelkasten' ? 'Zettelkasten' : 'Other Systems'}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4 text-sm">
+          {activeTab === 'zettelkasten' ? (
+            <>
+              <div>
+                <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-1">What is Zettelkasten?</h3>
+                <p className="text-gray-600 dark:text-gray-400 leading-relaxed">
+                  Zettelkasten (German for "slip-box") is a personal knowledge management method developed by sociologist Niklas Luhmann, who used it to write over 70 books and 400 scholarly articles. The system treats each idea as an atomic note that links to other notes, forming a web of knowledge rather than a hierarchy.
+                </p>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-2">Core Principles</h3>
+                <div className="space-y-2">
+                  {[
+                    { title: 'Atomic notes', desc: 'Each note contains exactly one idea. This forces clarity and makes notes reusable across many contexts.' },
+                    { title: 'Unique IDs', desc: 'Every note has a unique identifier (originally a number like 21/3a) so it can be referenced precisely from other notes.' },
+                    { title: 'Links over hierarchy', desc: 'Notes connect to each other via links rather than being filed into folders. Ideas that relate across topics stay connected.' },
+                    { title: 'Your own words', desc: 'Notes are always written in your own words, never copied text. This forces understanding before capture.' },
+                    { title: 'Fleeting → Literature → Permanent', desc: 'Quick captures become processed literature notes, which become permanent notes in your own voice.' },
+                  ].map(p => (
+                    <div key={p.title} className="bg-gray-50 dark:bg-surface-700 rounded-lg p-3 border border-gray-100 dark:border-gray-600">
+                      <p className="font-medium text-gray-700 dark:text-gray-200 mb-0.5">{p.title}</p>
+                      <p className="text-gray-500 dark:text-gray-400 leading-relaxed text-xs">{p.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-2">How This App Relates</h3>
+                <div className="bg-accent-50 dark:bg-accent-900/20 border border-accent-200 dark:border-accent-800/40 rounded-lg p-3 space-y-2">
+                  {[
+                    { icon: '🔗', text: 'Wiki-links ([[Note Title]]) let you connect notes just like Zettelkasten links.' },
+                    { icon: '🏷️', text: 'Tags act as entry points into idea clusters — use the Tags view to navigate by theme.' },
+                    { icon: '📁', text: 'Your vault folder maps to the slip-box. Keep it flat or lightly structured.' },
+                    { icon: '🔍', text: 'Command palette (⌘K) lets you quickly find and jump between notes by title.' },
+                    { icon: '📊', text: 'Diagram view can visualize the link graph of your notes if you export connections.' },
+                  ].map(item => (
+                    <div key={item.icon} className="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
+                      <span className="mt-0.5">{item.icon}</span>
+                      <span>{item.text}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Getting Started</h3>
+                <ol className="list-decimal list-inside space-y-1 text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                  <li>Create a <strong>fleeting note</strong> for any quick thought or idea you want to capture.</li>
+                  <li>Later, process it into a <strong>permanent note</strong> — one idea, your own words, with a descriptive title.</li>
+                  <li>Ask: "what other notes does this relate to?" and add <code className="bg-gray-100 dark:bg-surface-700 px-1 rounded">[[links]]</code> to them.</li>
+                  <li>Add relevant tags so the note surfaces in thematic clusters.</li>
+                  <li>Delete or discard fleeting notes once processed.</li>
+                </ol>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-500 dark:text-gray-400 leading-relaxed text-xs">
+                Different note-taking methods suit different needs. Here's an overview of popular systems and when to use each.
+              </p>
+              <div className="space-y-3">
+                {[
+                  {
+                    name: 'GTD (Getting Things Done)',
+                    author: 'David Allen',
+                    summary: 'A productivity system focused on capturing all tasks and commitments into a trusted external system so your mind is free to think. Notes serve as inboxes, project references, and next-action lists.',
+                    use: 'Best for: task management, reducing mental overhead, professional project tracking.',
+                    appFeature: 'Use the GSD view for GTD-style task capture and next-action tracking.',
+                  },
+                  {
+                    name: 'PARA Method',
+                    author: 'Tiago Forte',
+                    summary: 'Organizes all information into four categories: Projects (active goals), Areas (ongoing responsibilities), Resources (reference material), Archives (inactive items). Notes live in whichever bucket fits their purpose.',
+                    use: 'Best for: people who want clear folder organization and a place for everything.',
+                    appFeature: 'Create top-level folders in your vault for Projects/, Areas/, Resources/, Archives/.',
+                  },
+                  {
+                    name: 'Cornell Notes',
+                    author: 'Walter Pauk, Cornell University',
+                    summary: 'A structured page layout: a narrow left column for cues/questions, a wide right column for notes, and a summary at the bottom. Designed for lecture and study contexts to aid review.',
+                    use: 'Best for: students, structured learning, material you will review later.',
+                    appFeature: 'Use a markdown table or callout blocks to replicate the Cornell layout.',
+                  },
+                  {
+                    name: 'Evergreen Notes',
+                    author: 'Andy Matuschak',
+                    summary: 'Similar to Zettelkasten but emphasizes that notes should be continuously revised and refined over time. Notes are titled as complete assertions ("Spaced repetition helps long-term retention") rather than topics.',
+                    use: 'Best for: researchers and writers who want ideas to compound over years.',
+                    appFeature: 'Use descriptive assertion-style titles and wiki-links to keep notes interconnected.',
+                  },
+                  {
+                    name: 'Bullet Journal (BuJo)',
+                    author: 'Ryder Carroll',
+                    summary: 'An analog rapid-logging system using bullets, dashes, and dots to distinguish tasks, events, and notes. Relies on daily logs, monthly logs, and future logs combined in one notebook.',
+                    use: 'Best for: daily planning, habit tracking, people who like structured journaling.',
+                    appFeature: 'Use the Calendar view for event logs; markdown checklists for daily task rapid-logging.',
+                  },
+                  {
+                    name: 'Mind Mapping',
+                    author: 'Tony Buzan (popularized)',
+                    summary: 'A visual diagram starting from a central topic with branches for related ideas. Captures non-linear thinking and helps with brainstorming, planning, and learning overview.',
+                    use: 'Best for: brainstorming, visual thinkers, project planning overviews.',
+                    appFeature: 'Use the Diagram view to build mind maps and flowcharts visually.',
+                  },
+                  {
+                    name: 'Second Brain / Building a Second Brain',
+                    author: 'Tiago Forte',
+                    summary: 'A broader philosophy for using digital tools to offload memory and thinking. Combines PARA organization with progressive summarization (highlighting → bold → summary) to distill information over time.',
+                    use: 'Best for: knowledge workers who consume a lot of content and want to retrieve it later.',
+                    appFeature: 'Use this app as your second brain: capture in notes, organize with PARA folders and tags, link ideas with wiki-links.',
+                  },
+                ].map(sys => (
+                  <div key={sys.name} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <p className="font-semibold text-gray-800 dark:text-gray-100">{sys.name}</p>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">by {sys.author}</span>
+                    </div>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-2">{sys.summary}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-500 italic mb-1.5">{sys.use}</p>
+                    <div className="flex items-start gap-1.5 text-[11px] text-accent-600 dark:text-accent-400 bg-accent-50 dark:bg-accent-900/20 rounded px-2 py-1.5">
+                      <span className="shrink-0 mt-0.5">💡</span>
+                      <span>{sys.appFeature}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
   { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes' },
-  { view: 'calendar', icon: <Calendar size={18} />,    label: 'Calendar' },
   { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags' },
   { view: 'sync',     icon: <Github size={18} />,       label: 'Sync' },
   { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams', section: 'Tools' },
@@ -32,6 +199,7 @@ export default function Sidebar() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showMeetingModal, setShowMeetingModal] = useState(false)
   const [showMusicPlayer, setShowMusicPlayer] = useState(false)
+  const [showNoteMethods, setShowNoteMethods] = useState(false)
   const { isPlaying, title, artist, sendCommand } = useMusicStore()
   const hasTrack = !!(title)
 
@@ -219,6 +387,14 @@ export default function Sidebar() {
           {sidebarOpen && 'Music'}
         </button>
         <button
+          onClick={() => setShowNoteMethods(true)}
+          className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 mb-1 transition-colors text-gray-600 dark:text-gray-400"
+          title="Note-taking methods"
+        >
+          <BookMarked size={16} />
+          {sidebarOpen && 'Note Methods'}
+        </button>
+        <button
           onClick={toggleDarkMode}
           className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
           title="Toggle dark mode"
@@ -238,6 +414,11 @@ export default function Sidebar() {
       {/* Music player — floating overlay */}
       {showMusicPlayer && (
         <MusicPlayer onClose={() => setShowMusicPlayer(false)} />
+      )}
+
+      {/* Note-taking methods panel — floating overlay */}
+      {showNoteMethods && (
+        <NoteMethodsPanel onClose={() => setShowNoteMethods(false)} />
       )}
     </div>
   )

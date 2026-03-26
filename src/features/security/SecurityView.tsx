@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
 import JimpleAnalyzerView from './JimpleAnalyzerView'
+import SootCompilerView from './SootCompilerView'
 import AndroidManifestAnalyzerView from './AndroidManifestAnalyzerView'
 import CVSSCalculatorView from './CVSSCalculatorView'
 import MitreAttackNavigatorView from './MitreAttackNavigatorView'
@@ -9,7 +10,7 @@ import OsintView from './OsintView'
 import PcapAnalyzerView from './PcapAnalyzerView'
 import LiveCaptureView from './LiveCaptureView'
 
-type SecurityTool = 'jimple-analyzer' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response' | 'osint' | 'pcap-analyzer' | 'live-capture'
+type SecurityTool = 'jimple-analyzer' | 'soot-compiler' | 'manifest-analyzer' | 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response' | 'osint' | 'pcap-analyzer' | 'live-capture'
 
 interface Tool {
   id: SecurityTool
@@ -21,6 +22,7 @@ const TOOLS: Tool[] = [
   { id: 'osint',             label: 'OSINT',            icon: '🕵️' },
   { id: 'pcap-analyzer',    label: 'PCAP Analyzer',    icon: '📡' },
   { id: 'live-capture',     label: 'Live Capture',     icon: '🔴' },
+  { id: 'soot-compiler',     label: 'Soot Compiler',    icon: '⚙️' },
   { id: 'jimple-analyzer',   label: 'Jimple Analyzer',  icon: '🔍' },
   { id: 'manifest-analyzer', label: 'Manifest Analyzer', icon: '📋' },
   { id: 'cvss-calculator',   label: 'CVSS Calculator',  icon: '🎯' },
@@ -59,6 +61,7 @@ export default function SecurityView() {
         {activeTool === 'osint'             && <OsintView />}
         {activeTool === 'pcap-analyzer'    && <PcapAnalyzerView />}
         {activeTool === 'live-capture'     && <LiveCaptureView />}
+        {activeTool === 'soot-compiler'     && <SootCompilerView />}
         {activeTool === 'jimple-analyzer'   && <JimpleAnalyzerView />}
         {activeTool === 'manifest-analyzer' && <AndroidManifestAnalyzerView />}
         {activeTool === 'cvss-calculator'   && <CVSSCalculatorView />}

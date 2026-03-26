@@ -1,7 +1,6 @@
 import React, { useEffect } from 'react'
 import Sidebar from './components/Layout/Sidebar'
 import EditorView from './features/editor/EditorView'
-import CalendarView from './features/calendar/CalendarView'
 import TagBrowser from './features/tags/TagBrowser'
 import SyncView from './features/sync/SyncView'
 import DiagramEditor from './features/diagram/DiagramEditor'
@@ -101,7 +100,6 @@ export default function App() {
         ) : (
           <>
             {activeView === 'notes' && <EditorView />}
-            {activeView === 'calendar' && <CalendarView />}
             {activeView === 'tags' && <TagBrowser />}
             </>
         )}
