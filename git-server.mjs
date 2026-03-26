@@ -2798,6 +2798,60 @@ sys.stdout.flush()
     }
   }
 
+  // GET /security/manifest/browse — open native file picker and return selected path
+  if (req.method === 'GET' && url.pathname === '/security/manifest/browse') {
+    setCors(res)
+    try {
+      const selected = await new Promise((resolve, reject) => {
+        execFile('zenity', ['--file-selection', '--title=Select AndroidManifest.xml', '--file-filter=XML files (*.xml) | *.xml'], (err, stdout) => {
+          if (err) {
+            // exit code 1 means user cancelled — not a real error
+            if (err.code === 1) return resolve(null)
+            return reject(err)
+          }
+          resolve(stdout.trim())
+        })
+      })
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: selected }))
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
+  // GET /security/manifest/store-proxy?pkg=... — proxy Play Store page to avoid X-Frame-Options
+  if (req.method === 'GET' && url.pathname === '/security/manifest/store-proxy') {
+    setCors(res)
+    const pkg = url.searchParams.get('pkg')
+    if (!pkg || !/^[a-zA-Z0-9._]+$/.test(pkg)) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' })
+      res.end('Invalid package name')
+      return
+    }
+    try {
+      const storeUrl = `https://play.google.com/store/apps/details?id=${encodeURIComponent(pkg)}&hl=en`
+      const data = await new Promise((resolve, reject) => {
+        https.get(storeUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }, (r) => {
+          let body = ''
+          r.on('data', chunk => body += chunk)
+          r.on('end', () => resolve({ status: r.statusCode, body }))
+        }).on('error', reject)
+      })
+      // Rewrite absolute URLs so relative assets resolve, and strip CSP/frame headers
+      const rewritten = data.body
+        .replace(/<base [^>]*>/gi, '')
+        .replace(/(href|src|action)="\/([^"])/gi, `$1="https://play.google.com/$2`)
+      res.writeHead(data.status, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.end(rewritten)
+    } catch (e) {
+      res.writeHead(502, { 'Content-Type': 'text/plain' })
+      res.end(`Failed to fetch Play Store page: ${e.message}`)
+    }
+    return
+  }
+
   // POST /security/manifest/analyze — analyze AndroidManifest.xml file
   if (req.method === 'POST' && url.pathname === '/security/manifest/analyze') {
     setCors(res)

@@ -90,7 +90,9 @@
       "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App/src -type f \\\\\\(-name *.md -o -name *.test.* \\\\\\) ! -path */node_modules/*)",
       "Bash(1 echo:*)",
       "Read(//home/sean/Android/Sdk/platforms/**)",
-      "Read(//home/sean/Android/sdk/**)"
+      "Read(//home/sean/Android/sdk/**)",
+      "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App -name server* -o -name *backend* -o -name *routes*)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

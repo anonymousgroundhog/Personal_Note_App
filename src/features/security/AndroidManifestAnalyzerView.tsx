@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Copy, Check, AlertCircle } from 'lucide-react'
+import { Copy, Check, AlertCircle, FolderOpen } from 'lucide-react'
 import type { AnalysisResult } from './types'
 
 interface ManifestData {
@@ -18,7 +18,7 @@ interface ManifestData {
   intentFilters: { [key: string]: string[] }
 }
 
-type ResultTab = 'metadata' | 'components' | 'permissions' | 'intents'
+type ResultTab = 'metadata' | 'components' | 'permissions' | 'intents' | 'store'
 type AnalysisStatus = 'idle' | 'analyzing' | 'done' | 'error'
 
 const DANGEROUS_PERMISSIONS = [
@@ -49,6 +49,15 @@ export default function AndroidManifestAnalyzerView() {
   const [activeTab, setActiveTab] = useState<ResultTab>('metadata')
   const [copied, setCopied] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const handleBrowse = async () => {
+    try {
+      const res = await fetch('/security/manifest/browse')
+      const data = await res.json()
+      if (data.path) setFilePath(data.path)
+    } catch {
+      // ignore — user likely cancelled or server unavailable
+    }
+  }
 
   // Auto-analyze when path is provided
   useEffect(() => {
@@ -137,6 +146,14 @@ export default function AndroidManifestAnalyzerView() {
               placeholder="e.g. ~/app/AndroidManifest.xml or /path/to/manifest"
               className="flex-1 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
             />
+            <button
+              onClick={handleBrowse}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600 transition-colors"
+              title="Browse for manifest file"
+            >
+              <FolderOpen size={14} />
+              Browse
+            </button>
           </div>
           <div className="mt-2 p-2 rounded bg-blue-100 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700">
             <p className="text-[10px] text-blue-700 dark:text-blue-300">
@@ -159,7 +176,7 @@ export default function AndroidManifestAnalyzerView() {
         {manifest ? (
           <div className="flex-1 flex flex-col rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden bg-white dark:bg-surface-800">
             <div className="flex gap-1 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-700">
-              {(['metadata', 'components', 'permissions', 'intents'] as ResultTab[]).map(tab => (
+              {(['metadata', 'components', 'permissions', 'intents', 'store'] as ResultTab[]).map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -173,6 +190,7 @@ export default function AndroidManifestAnalyzerView() {
                   {tab === 'components' && 'Components'}
                   {tab === 'permissions' && `Permissions (${manifest.permissions.length})`}
                   {tab === 'intents' && 'Intent Filters'}
+                  {tab === 'store' && 'Play Store'}
                 </button>
               ))}
             </div>
@@ -354,6 +372,30 @@ export default function AndroidManifestAnalyzerView() {
                   ) : (
                     <p className="text-sm text-gray-500 dark:text-gray-400">No intent filters found.</p>
                   )}
+                </div>
+              )}
+
+              {activeTab === 'store' && (
+                <div className="flex flex-col h-full" style={{ minHeight: '500px' }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xs text-gray-600 dark:text-gray-400 font-mono truncate">
+                      https://play.google.com/store/apps/details?id={manifest.packageName}
+                    </span>
+                    <a
+                      href={`https://play.google.com/store/apps/details?id=${manifest.packageName}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600 transition-colors"
+                    >
+                      Open in browser
+                    </a>
+                  </div>
+                  <iframe
+                    src={`/security/manifest/store-proxy?pkg=${encodeURIComponent(manifest.packageName)}`}
+                    className="flex-1 w-full rounded border border-gray-200 dark:border-gray-700"
+                    style={{ minHeight: '460px' }}
+                    title="Google Play Store"
+                  />
                 </div>
               )}
             </div>
