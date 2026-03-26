@@ -2,6 +2,7 @@ import soot.*;
 import soot.options.Options;
 import soot.jimple.*;
 import soot.util.*;
+import soot.toolkits.graph.UnitGraph;
 
 import java.io.*;
 import java.nio.file.*;
@@ -88,6 +89,7 @@ public class SootApkAnalyzer {
   private static List<InterestingStringData> interestingStrings = new ArrayList<>();
   private static List<ClassData> classes = new ArrayList<>();
   private static Set<String> detectedLibraries = new HashSet<>();
+  private static List<CFGData> cfgDataList = new ArrayList<>();
   private static long startTime;
 
   public static void main(String[] args) throws Exception {
@@ -201,6 +203,12 @@ public class SootApkAnalyzer {
       // Analyze method body for sensitive APIs and strings
       if (method.hasActiveBody()) {
         analyzeMethodBody(method, className);
+        // Extract CFG
+        try {
+          extractCFG(method, className);
+        } catch (Exception e) {
+          // Skip CFG extraction if it fails
+        }
       }
     }
 
@@ -225,6 +233,59 @@ public class SootApkAnalyzer {
 
       // Extract strings
       extractStrings(unit, className);
+    }
+  }
+
+  private static void extractCFG(SootMethod method, String className) {
+    Body body = method.getActiveBody();
+    UnitGraph graph = new UnitGraph(body);
+
+    CFGData cfg = new CFGData();
+    cfg.className = className;
+    cfg.methodName = method.getName();
+    cfg.methodSignature = method.getSignature();
+
+    Map<Unit, CFGNodeData> unitToNode = new HashMap<>();
+    Map<Unit, Integer> unitToIndex = new HashMap<>();
+
+    // Create nodes
+    List<Unit> units = new ArrayList<>(body.getUnits());
+    for (int i = 0; i < units.size(); i++) {
+      Unit unit = units.get(i);
+      unitToIndex.put(unit, i);
+
+      CFGNodeData node = new CFGNodeData();
+      node.id = "unit_" + i;
+      node.label = unit.toString().length() > 30 ? unit.toString().substring(0, 30) : unit.toString();
+      node.isEntry = (i == 0);
+      node.isExit = (i == units.size() - 1);
+
+      cfg.nodes.add(node);
+      unitToNode.put(unit, node);
+    }
+
+    // Create edges based on CFG
+    for (Unit unit : units) {
+      List<Unit> succs = graph.getSuccsOf(unit);
+      for (Unit succ : succs) {
+        CFGEdgeData edge = new CFGEdgeData();
+        edge.from = unitToNode.get(unit).id;
+        edge.to = unitToNode.get(succ).id;
+
+        // Determine edge label for branches
+        if (unit instanceof IfStmt) {
+          IfStmt ifStmt = (IfStmt) unit;
+          Unit target = ifStmt.getTarget();
+          edge.label = target.equals(succ) ? "true" : "false";
+        }
+
+        cfg.edges.add(edge);
+      }
+    }
+
+    // Only add if has nodes
+    if (cfg.nodes.size() > 0) {
+      cfgDataList.add(cfg);
     }
   }
 
@@ -438,6 +499,39 @@ public class SootApkAnalyzer {
         .append("\",\"classCount\":").append(entry.getValue()).append("}");
     }
 
+    json.append("],\"cfgData\":[");
+    first = true;
+    for (CFGData cfg : cfgDataList) {
+      if (!first) json.append(",");
+      first = false;
+      json.append("{\"className\":\"").append(escape(cfg.className))
+        .append("\",\"methodName\":\"").append(escape(cfg.methodName))
+        .append("\",\"methodSignature\":\"").append(escape(cfg.methodSignature))
+        .append("\",\"nodes\":[");
+      boolean nfirst = true;
+      for (CFGNodeData node : cfg.nodes) {
+        if (!nfirst) json.append(",");
+        nfirst = false;
+        json.append("{\"id\":\"").append(escape(node.id))
+          .append("\",\"label\":\"").append(escape(node.label))
+          .append("\",\"isEntry\":").append(node.isEntry)
+          .append(",\"isExit\":").append(node.isExit).append("}");
+      }
+      json.append("],\"edges\":[");
+      boolean efirst = true;
+      for (CFGEdgeData edge : cfg.edges) {
+        if (!efirst) json.append(",");
+        efirst = false;
+        json.append("{\"from\":\"").append(escape(edge.from))
+          .append("\",\"to\":\"").append(escape(edge.to));
+        if (edge.label != null) {
+          json.append("\",\"label\":\"").append(escape(edge.label));
+        }
+        json.append("\"}");
+      }
+      json.append("]}");
+    }
+
     json.append("],\"analysisTimeMs\":").append(analysisTime).append("}");
 
     System.out.print(json.toString());
@@ -470,5 +564,20 @@ public class SootApkAnalyzer {
     List<String> interfaces = new ArrayList<>();
     List<MethodData> methods = new ArrayList<>();
     boolean isActivity, isService, isReceiver;
+  }
+
+  static class CFGNodeData {
+    String id, label;
+    boolean isEntry, isExit;
+  }
+
+  static class CFGEdgeData {
+    String from, to, label;
+  }
+
+  static class CFGData {
+    String className, methodName, methodSignature;
+    List<CFGNodeData> nodes = new ArrayList<>();
+    List<CFGEdgeData> edges = new ArrayList<>();
   }
 }

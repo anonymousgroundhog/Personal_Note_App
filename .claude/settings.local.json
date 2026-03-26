@@ -92,7 +92,9 @@
       "Read(//home/sean/Android/Sdk/platforms/**)",
       "Read(//home/sean/Android/sdk/**)",
       "Bash(find /home/sean/Documents/Projects/Personal/Personal_Note_App -name server* -o -name *backend* -o -name *routes*)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(find /home/spsand1/Documents/Projects/GitHub/Personal_Note_App -type f \\\\\\(-name server.* -o -name index.* -o -name app.* \\\\\\) ! -path */node_modules/* ! -path */dist/*)",
+      "Bash(pkill -f \"node.*vite\" sleep 2 curl -X POST https://localhost:5173/security/jimple/read-file -H \"Content-Type: application/json\" -d '{\"\"\"\"folderPath\"\"\"\":\"\"\"\"/home/spsand1/Downloads/sootOutput\"\"\"\",\"\"\"\"className\"\"\"\":\"\"\"\"android.app.ActivityTracker\"\"\"\"}' -k)"
     ]
   }
 }

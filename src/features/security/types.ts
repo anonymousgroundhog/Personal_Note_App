@@ -37,6 +37,27 @@ export interface LibraryInfo {
   classCount: number
 }
 
+export interface CFGNode {
+  id: string
+  label: string
+  isEntry: boolean
+  isExit: boolean
+}
+
+export interface CFGEdge {
+  from: string
+  to: string
+  label?: string
+}
+
+export interface MethodCFG {
+  className: string
+  methodName: string
+  methodSignature: string
+  nodes: CFGNode[]
+  edges: CFGEdge[]
+}
+
 export interface AnalysisResult {
   apkName?: string
   packageName: string
