@@ -98,7 +98,11 @@
       "Bash(tsconfig.electron.json:*)",
       "Bash(electron-builder.json5:*)",
       "Bash(chmod +x build-electron.sh)",
-      "Bash(npx electron:*)"
+      "Bash(npx electron:*)",
+      "Bash(npm audit:*)",
+      "Bash(pkill -9 -f \"node\\\\|electron\\\\|vite\" 2)",
+      "Bash(/dev/null sleep:*)",
+      "Bash(xargs kill:*)"
     ]
   }
 }
