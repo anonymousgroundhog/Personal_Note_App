@@ -1,0 +1,12 @@
+version: 1.0.0
+files:
+  - url: Personal-Note-App-1.0.0.AppImage
+    sha512: IOkR4srJ69tCzqWmpEdNacBpwGQlyrcfNp2/GRKNWVKxmDsjaUC8Y+lyRT8o3qTUjUKdqfopnqbuLizS7y9PXQ==
+    size: 218294812
+    blockMapSize: 227888
+  - url: personal-note-app_1.0.0_amd64.deb
+    sha512: GiqQQyNwTDz1jzAEUcOFBYm2U1WXuum+viXY5gYAUW7AlJeYI6YZWhm68w4TeCDscF3HUgk80j+dJ4LUg0l25A==
+    size: 141171302
+path: Personal-Note-App-1.0.0.AppImage
+sha512: IOkR4srJ69tCzqWmpEdNacBpwGQlyrcfNp2/GRKNWVKxmDsjaUC8Y+lyRT8o3qTUjUKdqfopnqbuLizS7y9PXQ==
+releaseDate: '2026-03-26T20:05:14.875Z'

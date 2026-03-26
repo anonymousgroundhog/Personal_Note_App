@@ -482,6 +482,30 @@ This creates professional installers in the `dist-app/` folder. See [STANDALONE_
 **"Chrome blocks opening certain sensitive directories"**
 - Store your notes in a subfolder (e.g., `~/Documents/Notes` instead of `~/Documents`)
 
+**Linux: AppImage shows a blank white window**
+- This is caused by the Vite build using absolute asset paths (`/assets/...`) which don't resolve correctly under `file://`. Rebuild from source — the fix is already included in the latest version:
+  ```bash
+  npm run build:electron:linux
+  ```
+
+**Linux: git-server fails with "Failed to load native module: pty.node"**
+- `node-pty` ships prebuilt binaries that must match your system's Node.js version. Rebuild it:
+  ```bash
+  npm rebuild node-pty
+  ```
+- If that fails, install build tools first:
+  ```bash
+  sudo apt-get install -y python3 make g++
+  npm rebuild node-pty
+  ```
+
+**Linux: AppImage git-server keeps trying ports 3001, 3002, 3003...**
+- Multiple stale git-server processes are running. Kill them all and restart:
+  ```bash
+  pkill -f 'git-server.mjs'
+  ```
+- Then relaunch the AppImage.
+
 ---
 
 ### Verify Your Setup

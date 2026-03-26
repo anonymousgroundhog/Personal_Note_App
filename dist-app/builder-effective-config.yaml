@@ -1,0 +1,56 @@
+directories:
+  output: dist-app
+  buildResources: assets
+appId: com.personalapp.noteapp
+productName: Personal Note App
+files:
+  - filter:
+      - dist/**/*
+      - dist-electron/**/*
+      - git-server.mjs
+      - node_modules/**/*
+      - package.json
+      - soot_jar/**/*
+asarUnpack:
+  - git-server.mjs
+  - node_modules/node-pty/**/*
+  - node_modules/ws/**/*
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Personal Note App
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.productivity
+dmg:
+  iconSize: 128
+  contents:
+    - x: 120
+      'y': 130
+      type: file
+    - x: 380
+      'y': 130
+      type: link
+      path: /Applications
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Utility
+deb:
+  depends:
+    - libxss1
+    - libgconf-2-4
+electronVersion: 31.7.7

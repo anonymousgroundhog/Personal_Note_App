@@ -107,6 +107,7 @@ function jimpleReaderPlugin() {
 
 export default defineConfig({
   plugins: [react(), basicSsl(), jimpleReaderPlugin()],
+  base: './',
   server: {
     host: '0.0.0.0',
     proxy: {

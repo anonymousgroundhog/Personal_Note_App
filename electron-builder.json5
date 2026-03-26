@@ -13,6 +13,11 @@
     "package.json",
     "soot_jar/**/*"
   ],
+  asarUnpack: [
+    "git-server.mjs",
+    "node_modules/node-pty/**/*",
+    "node_modules/ws/**/*"
+  ],
   win: {
     target: [
       {

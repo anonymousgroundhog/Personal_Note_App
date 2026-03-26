@@ -33,17 +33,36 @@ function createWindow() {
     });
 }
 async function startGitServer() {
-    const serverScript = path.join(__dirname, '../git-server.mjs');
-    try {
+    const serverScript = isDev
+        ? path.join(__dirname, '../git-server.mjs')
+        : path.join(process.resourcesPath, 'app.asar.unpacked', 'git-server.mjs');
+    console.log('Starting git server from:', serverScript);
+    return new Promise((resolve) => {
         gitServer = spawn('node', [serverScript], {
-            stdio: 'inherit',
-            shell: true,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            shell: false,
         });
-        console.log('Git server started');
-    }
-    catch (error) {
-        console.error('Failed to start git server:', error);
-    }
+        gitServer.stdout?.on('data', (data) => {
+            const text = data.toString();
+            process.stdout.write(text);
+            if (text.includes('git-server listening')) {
+                resolve();
+            }
+        });
+        gitServer.stderr?.on('data', (data) => {
+            process.stderr.write(data.toString());
+        });
+        gitServer.on('error', (err) => {
+            console.error('Failed to start git server:', err);
+            resolve();
+        });
+        gitServer.on('exit', (code) => {
+            console.error('Git server exited unexpectedly with code:', code);
+            resolve();
+        });
+        // Fallback: don't block window creation indefinitely
+        setTimeout(resolve, 5000);
+    });
 }
 app.on('ready', async () => {
     await startGitServer();

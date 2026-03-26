@@ -15,10 +15,10 @@
     "tsc:electron": "tsc -p tsconfig.electron.json",
     "git-server": "node git-server.mjs",
     "build": "vite build",
-    "build:electron": "vite build && electron-builder",
-    "build:electron:win": "vite build && electron-builder --win",
-    "build:electron:mac": "vite build && electron-builder --mac",
-    "build:electron:linux": "vite build && electron-builder --linux",
+    "build:electron": "npm run tsc:electron && vite build && electron-builder",
+    "build:electron:win": "npm run tsc:electron && vite build && electron-builder --win",
+    "build:electron:mac": "npm run tsc:electron && vite build && electron-builder --mac",
+    "build:electron:linux": "npm run tsc:electron && vite build && electron-builder --linux",
     "preview": "vite preview"
   },
   "devDependencies": {
