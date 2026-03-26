@@ -105,7 +105,8 @@
       "Bash(xargs kill:*)",
       "Bash(npm cache:*)",
       "Bash(npx concurrently:*)",
-      "Bash(pkill -9 -f \"node\\\\|electron\\\\|vite\")"
+      "Bash(pkill -9 -f \"node\\\\|electron\\\\|vite\")",
+      "Bash(pkill -9 -f \"node\\\\|git-server\\\\|electron\\\\|vite\")"
     ]
   }
 }
