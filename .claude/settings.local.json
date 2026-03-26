@@ -102,7 +102,10 @@
       "Bash(npm audit:*)",
       "Bash(pkill -9 -f \"node\\\\|electron\\\\|vite\" 2)",
       "Bash(/dev/null sleep:*)",
-      "Bash(xargs kill:*)"
+      "Bash(xargs kill:*)",
+      "Bash(npm cache:*)",
+      "Bash(npx concurrently:*)",
+      "Bash(pkill -9 -f \"node\\\\|electron\\\\|vite\")"
     ]
   }
 }
