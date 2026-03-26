@@ -141,43 +141,72 @@ The app includes Android analysis tools that require Java. Follow the instructio
 
 ### Step 2: Install Node.js
 
-The app is built with Node.js. Follow the instructions for your operating system:
+The app requires **Node.js v20**. The recommended way to install and manage Node.js versions is with [nvm](https://github.com/nvm-sh/nvm) (Node Version Manager), which lets you switch versions easily and avoids permission issues.
 
 #### **Windows**
-1. Go to [nodejs.org](https://nodejs.org/)
-2. Download the **LTS** version (green button, currently v20 or higher)
-3. Run the installer and click **Next** through all steps
-4. When asked "Install native modules", leave it checked and continue
-5. Complete the installation
-6. Open a new Command Prompt window
-7. Verify by typing: `node --version` and pressing Enter
-8. You should see `v20.x.x` or higher
+1. Install [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) — download and run the `nvm-setup.exe` installer
+2. Open a new Command Prompt and run:
+   ```cmd
+   nvm install 20
+   nvm use 20
+   ```
+3. Verify by typing: `node --version`
+4. You should see `v20.x.x`
+
+> **Alternative (no nvm):** Go to [nodejs.org](https://nodejs.org/), download the **v20 LTS** installer, run it, and click **Next** through all steps. When asked "Install native modules", leave it checked.
 
 #### **macOS**
-1. Open Terminal
-2. If you have Homebrew, run:
+1. Open Terminal and install nvm:
    ```bash
-   brew install node
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
    ```
-3. If not, install Homebrew first (see Java section above), then run the command
-4. Verify by typing: `node --version`
+2. Close and reopen Terminal, then run:
+   ```bash
+   nvm install 20
+   nvm use 20
+   ```
+3. Verify by typing: `node --version`
+
+> **Alternative (Homebrew):** `brew install node@20 && brew link node@20`
 
 #### **Linux (Ubuntu/Debian)**
-1. Open Terminal
-2. Run:
+1. Open Terminal and install nvm:
    ```bash
-   sudo apt update
-   sudo apt install nodejs npm
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+   ```
+2. Close and reopen Terminal, then run:
+   ```bash
+   nvm install 20
+   nvm use 20
    ```
 3. Verify by typing: `node --version`
 
+> **Alternative (apt):** The system package may be an older version. Use the NodeSource repo for v20:
+> ```bash
+> curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+> sudo apt install -y nodejs
+> ```
+
 #### **Linux (Fedora/RHEL)**
-1. Open Terminal
-2. Run:
+1. Open Terminal and install nvm (same as Ubuntu above), then:
    ```bash
-   sudo dnf install nodejs npm
+   nvm install 20
+   nvm use 20
    ```
-3. Verify by typing: `node --version`
+2. Verify by typing: `node --version`
+
+> **Alternative (dnf):**
+> ```bash
+> sudo dnf module enable nodejs:20
+> sudo dnf install nodejs npm
+> ```
+
+#### **Pinning the version (optional but recommended)**
+After installing, create a `.nvmrc` file in the project root so `nvm` always uses the right version automatically:
+```bash
+echo "20" > .nvmrc
+nvm use  # reads .nvmrc automatically
+```
 
 ---
 
