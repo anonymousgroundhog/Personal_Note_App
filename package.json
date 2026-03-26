@@ -1,12 +1,23 @@
 {
   "name": "personal-note-app",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "dist-electron/main.js",
+  "author": {
+    "name": "Personal Note App Team",
+    "email": "support@personalnoteapp.local"
+  },
+  "description": "A comprehensive personal note-taking and productivity application",
   "scripts": {
     "dev": "node git-server.mjs & vite",
+    "dev:electron": "vite && electron .",
     "git-server": "node git-server.mjs",
-    "build": "tsc && vite build",
+    "build": "vite build",
+    "build:electron": "vite build && electron-builder",
+    "build:electron:win": "vite build && electron-builder --win",
+    "build:electron:mac": "vite build && electron-builder --mac",
+    "build:electron:linux": "vite build && electron-builder --linux",
     "preview": "vite preview"
   },
   "devDependencies": {
@@ -19,6 +30,8 @@
     "@vitejs/plugin-react": "^6.0.1",
     "autoprefixer": "^10.4.27",
     "cors": "^2.8.6",
+    "electron": "^31.0.0",
+    "electron-builder": "^25.1.1",
     "express": "^5.2.1",
     "postcss": "^8.5.8",
     "tailwindcss": "^3.4.19",
