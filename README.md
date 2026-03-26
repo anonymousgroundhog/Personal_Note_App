@@ -32,6 +32,20 @@ A local-first markdown note-taking app with Obsidian-style editing, Gantt chart 
 
 This guide will walk you through installing everything you need to run the Personal Note App. Even if you're not technical, just follow the steps for your operating system.
 
+### What You're Installing (and Why)
+
+| Tool | Purpose | Required? |
+|---|---|---|
+| **Java** | Powers the Soot compiler for Android bytecode analysis | ✅ Yes |
+| **Node.js + npm** | Runs the Personal Note App | ✅ Yes |
+| **apktool** | Decompiles Android APK files for analysis | ✅ Yes |
+| **Android Studio** | Provides the Android SDK and development tools | ⚠️ Recommended |
+| **Android SDK Platforms** | Contains Android system files for different versions (needed for APK analysis) | ⚠️ Recommended |
+| **Android SDK Tools** | Command-line tools like `adb` for device communication and analysis | ⚠️ Recommended |
+
+**Minimum Setup:** Java, Node.js, apktool (basic analysis only)
+**Recommended Setup:** Everything above (full analysis features)
+
 ### Step 1: Install Java
 
 The app includes Android analysis tools that require Java. Follow the instructions for your operating system:
@@ -167,6 +181,100 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 
 ---
 
+### Step 3.5: Install Android Studio (Optional but Recommended)
+
+Android Studio provides the Android SDK and development tools needed for advanced Android analysis. If you only plan to use basic analysis features, you can skip this step. However, it's recommended for full functionality.
+
+#### **Windows**
+1. Go to [developer.android.com/studio](https://developer.android.com/studio)
+2. Click **Download Android Studio**
+3. Accept the terms and download the installer
+4. Run the downloaded `.exe` file
+5. Follow the installation wizard:
+   - Click **Next** through the welcome screens
+   - Choose installation location (default is fine)
+   - Select "Android Virtual Device" if you want to test apps (optional)
+   - Click **Install** and wait for completion
+6. After installation, Android Studio opens and downloads components (this may take several minutes)
+7. Close Android Studio when done
+
+#### **macOS**
+1. Go to [developer.android.com/studio](https://developer.android.com/studio)
+2. Click **Download Android Studio**
+3. Accept the terms and download the `.dmg` file
+4. Open the downloaded file and drag the Android Studio icon to the Applications folder
+5. Open Applications and double-click **Android Studio**
+6. Follow the setup wizard:
+   - Click through the welcome screens
+   - Choose "Standard" setup (recommended)
+   - The IDE downloads required components
+7. Close Android Studio when done
+
+#### **Linux (Ubuntu/Debian)**
+1. Go to [developer.android.com/studio](https://developer.android.com/studio)
+2. Click **Download Android Studio**
+3. Accept the terms and download the `.tar.gz` file
+4. Open Terminal and run:
+   ```bash
+   cd ~/Downloads
+   tar -xzf android-studio-*.tar.gz
+   mv android-studio ~
+   cd ~/android-studio/bin
+   ./studio.sh
+   ```
+5. Follow the setup wizard and let it download required components
+6. Close Android Studio when done
+
+#### **Linux (Fedora/RHEL)**
+1. Install the IDE and Java development tools:
+   ```bash
+   sudo dnf install android-studio
+   ```
+2. Open Android Studio from your applications menu
+3. Follow the setup wizard and let it download components
+4. Close when done
+
+---
+
+### Step 3.6: Install Android SDK Platforms and Tools
+
+Once Android Studio is installed, you need to install the Android SDK platforms and tools. Follow these steps:
+
+#### **All Platforms (Windows, macOS, Linux)**
+
+1. Open Android Studio
+2. Click **Tools** in the top menu
+3. Click **SDK Manager**
+4. A window opens showing "Android SDK"
+5. Go to the **SDK Platforms** tab:
+   - Check the boxes for:
+     - **Android 15** (API 35) or your target API level
+     - **Android 14** (API 34) - recommended for compatibility
+     - **Android 13** (API 33) - recommended for compatibility
+   - Click **Apply** and wait for downloads to complete (may take 5-10 minutes)
+
+6. Go to the **SDK Tools** tab:
+   - Make sure these are checked:
+     - **Android SDK Build-Tools** (latest version)
+     - **Android Emulator** (if you want to test apps)
+     - **Android SDK Platform-Tools** (includes adb)
+     - **Google USB Driver** (Windows only, if using real Android devices)
+   - Click **Apply** and wait for installation
+
+7. Click **OK** and close the SDK Manager
+
+8. Close Android Studio
+
+**Verification:**
+Open Terminal/Command Prompt and verify the SDK tools are installed:
+```bash
+adb --version    # Should show Android Debug Bridge version
+```
+
+You should see version information without errors.
+
+---
+
 ### Step 4: Download and Install the Personal Note App
 
 1. Go to the repository on GitHub and click the green **Code** button
@@ -184,7 +292,50 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 
 ---
 
-### Step 5: Start the App
+### Step 5: Configure Android SDK Path (Optional but Recommended)
+
+The app works better when it knows where your Android SDK is installed. This step helps the analysis tools find Android components automatically.
+
+#### **Windows**
+1. Open Command Prompt
+2. Run this command (replacing the path with your actual SDK location):
+   ```bash
+   setx ANDROID_SDK_ROOT "C:\Users\YourName\AppData\Local\Android\Sdk"
+   ```
+3. Close Command Prompt and open a new one
+4. Verify by typing: `echo %ANDROID_SDK_ROOT%`
+
+#### **macOS**
+1. Open Terminal
+2. Edit your profile:
+   ```bash
+   nano ~/.zprofile
+   ```
+3. Add this line:
+   ```bash
+   export ANDROID_SDK_ROOT=~/Library/Android/sdk
+   ```
+4. Press `Ctrl + X`, then `Y`, then `Enter` to save
+5. Run: `source ~/.zprofile`
+6. Verify by typing: `echo $ANDROID_SDK_ROOT`
+
+#### **Linux**
+1. Open Terminal
+2. Edit your profile:
+   ```bash
+   nano ~/.bashrc
+   ```
+3. Add this line:
+   ```bash
+   export ANDROID_SDK_ROOT=~/Android/Sdk
+   ```
+4. Press `Ctrl + X`, then `Y`, then `Enter` to save
+5. Run: `source ~/.bashrc`
+6. Verify by typing: `echo $ANDROID_SDK_ROOT`
+
+---
+
+### Step 6: Start the App
 
 1. In the same Terminal/Command Prompt window, run:
    ```bash
@@ -231,13 +382,26 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 After installation, verify everything is working by running these commands:
 
 ```bash
-java -version          # Should show Java 21 or higher
-node --version         # Should show v20 or higher
-npm --version          # Should show v10 or higher
-apktool --version      # Should show the apktool version
+java -version              # Should show Java 21 or higher
+node --version             # Should show v20 or higher
+npm --version              # Should show v10 or higher
+apktool --version          # Should show the apktool version
+adb --version              # Should show Android Debug Bridge version
+echo $ANDROID_SDK_ROOT     # Should show your SDK path (Mac/Linux)
+echo %ANDROID_SDK_ROOT%    # Should show your SDK path (Windows)
 ```
 
-All commands should return version numbers without errors. If any fail, re-read the installation section for that tool.
+All commands should return version numbers or paths without errors. If any fail, re-read the installation section for that tool.
+
+**Quick Checklist:**
+- [ ] Java installed and `java -version` works
+- [ ] Node.js installed and `node --version` works
+- [ ] npm installed and `npm --version` works
+- [ ] apktool installed and `apktool --version` works
+- [ ] Android Studio installed (optional but recommended)
+- [ ] Android SDK Platforms installed (Android 13, 14, 15)
+- [ ] Android SDK Tools installed (Build-Tools, Platform-Tools, Emulator)
+- [ ] ANDROID_SDK_ROOT environment variable set (optional but recommended)
 
 ---
 
