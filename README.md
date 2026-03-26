@@ -440,7 +440,12 @@ This creates professional installers in the `dist-app/` folder. See [STANDALONE_
 - This is normal — it's downloading many dependencies. Be patient and let it finish.
 
 **"Cannot find module" errors when running `npm run dev`**
-- Run `npm install` again to ensure all dependencies are installed.
+- This can happen when `node_modules` is partially corrupted (e.g. a package was installed but its `dist/` folder is missing). A clean reinstall fixes it:
+  ```bash
+  rm -rf node_modules
+  npm install
+  ```
+  On Windows, use `rmdir /s /q node_modules` instead of `rm -rf`.
 
 **Browser shows HTTPS certificate warning**
 - This is expected for local development. Click **Advanced** and proceed — it's safe.
