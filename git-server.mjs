@@ -26,7 +26,8 @@ import { randomBytes } from 'crypto'
 import { WebSocketServer } from 'ws'
 import pty from 'node-pty'
 
-const PORT = 3001
+const DEFAULT_PORT = 3001
+const PORT = parseInt(process.env.GIT_SERVER_PORT || DEFAULT_PORT, 10)
 const execFileAsync = promisify(execFile)
 
 // ── Security Suite Configuration ───────────────────────────────────────────────────
@@ -3174,6 +3175,13 @@ sys.stdout.flush()
 
 const wss = new WebSocketServer({ server })
 
+// Suppress WebSocketServer errors during port binding
+wss.on('error', (err) => {
+  if (err.code !== 'EADDRINUSE') {
+    console.error('WebSocketServer error:', err)
+  }
+})
+
 wss.on('connection', (ws, req) => {
   // Only allow local/LAN origins
   const origin = req.headers.origin || ''
@@ -3217,10 +3225,36 @@ wss.on('connection', (ws, req) => {
 })
 
 const caps = await detectCaps()
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n  git-server listening on http://0.0.0.0:${PORT}`)
-  console.log(`  terminal : ws://0.0.0.0:${PORT}/terminal`)
-  console.log(`  git : ${caps.git ? caps.gitVersion : 'NOT FOUND'}`)
-  console.log(`  lfs : ${caps.lfs ? caps.lfsVersion : 'not installed'}`)
-  console.log()
-})
+
+// Try to listen on PORT, with fallback to alternate ports
+let listeningPort = PORT
+let server_listening = false
+
+const tryListen = (port) => {
+  return new Promise((resolve, reject) => {
+    const listener = () => {
+      console.log(`\n  git-server listening on http://0.0.0.0:${port}`)
+      console.log(`  terminal : ws://0.0.0.0:${port}/terminal`)
+      console.log(`  git : ${caps.git ? caps.gitVersion : 'NOT FOUND'}`)
+      console.log(`  lfs : ${caps.lfs ? caps.lfsVersion : 'not installed'}`)
+      console.log()
+      listeningPort = port
+      resolve()
+    }
+
+    const errorHandler = (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`  Port ${port} is in use, trying ${port + 1}...`)
+        server.removeListener('error', errorHandler)
+        tryListen(port + 1).then(resolve).catch(reject)
+      } else {
+        reject(err)
+      }
+    }
+
+    server.once('error', errorHandler)
+    server.listen(port, '0.0.0.0', listener)
+  })
+}
+
+await tryListen(PORT)
