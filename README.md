@@ -28,6 +28,53 @@ A local-first markdown note-taking app with Obsidian-style editing, Gantt chart 
 
 ---
 
+## 🚀 Standalone Desktop Application
+
+The Personal Note App is now available as a **standalone desktop application** for Windows, macOS, and Linux!
+
+### Quick Start (Desktop App)
+
+**Windows:**
+```cmd
+build-electron.bat
+```
+
+**macOS/Linux:**
+```bash
+chmod +x build-electron.sh
+./build-electron.sh
+```
+
+Your packaged app will be in `dist-app/`. See [STANDALONE_README.md](./STANDALONE_README.md) for full details.
+
+### Development Mode
+```bash
+npm install
+npm run dev:electron
+```
+
+This launches the app with hot-reload for development.
+
+### Features of Desktop App
+- ✅ Native Windows, macOS, and Linux application
+- ✅ Professional installers for each platform
+- ✅ Secure Electron IPC communication
+- ✅ Native file dialogs and app menu
+- ✅ All Note App features included
+- ✅ Git integration built-in
+
+### Output Formats
+After building, you'll have:
+- **Windows**: NSIS installer + portable EXE
+- **macOS**: DMG installer + ZIP archive
+- **Linux**: AppImage + DEB package
+
+For more details on building and distribution, see:
+- 📘 [STANDALONE_README.md](./STANDALONE_README.md) — Feature overview and quick start
+- 🚀 [QUICK_REFERENCE.md](./QUICK_REFERENCE.md) — Commands and troubleshooting
+
+---
+
 ## Getting Started: Complete Setup Guide
 
 This guide will walk you through installing everything you need to run the Personal Note App. Even if you're not technical, just follow the steps for your operating system.
@@ -337,19 +384,45 @@ The app works better when it knows where your Android SDK is installed. This ste
 
 ### Step 6: Start the App
 
-1. In the same Terminal/Command Prompt window, run:
-   ```bash
-   npm run dev
-   ```
-2. You should see output like:
-   ```
-   ➜  Local:   https://localhost:5173/
-   ```
-3. Open your web browser and go to `https://localhost:5173`
-4. Your browser may show a security warning about the certificate — this is normal for local development. Click **Advanced** or **Proceed** to continue
-5. Click **Open Vault Folder** and select a folder where you want to store your notes
+You can run the app in two ways:
+
+#### **Option A: Desktop App (Recommended)**
+```bash
+npm run dev:electron
+```
+This launches the app as a native desktop application with hot-reload during development. The app window opens automatically.
+
+#### **Option B: Web Version**
+```bash
+npm run dev
+```
+This starts a local web server. You should see output like:
+```
+➜  Local:   https://localhost:5173/
+```
+Open your web browser and go to `https://localhost:5173`. Your browser may show a security warning about the certificate — this is normal for local development. Click **Advanced** or **Proceed** to continue.
+
+---
+
+### Step 7: Create Your Vault
+
+1. Click **Open Vault Folder** and select a folder where you want to store your notes
+2. Start creating notes!
 
 **Done!** You can now use the Personal Note App.
+
+---
+
+### Building a Standalone Desktop App
+
+To build a standalone application that can be distributed to others:
+
+```bash
+./build-electron.sh          # macOS/Linux
+build-electron.bat           # Windows
+```
+
+This creates professional installers in the `dist-app/` folder. See [STANDALONE_README.md](./STANDALONE_README.md) for details.
 
 ---
 
