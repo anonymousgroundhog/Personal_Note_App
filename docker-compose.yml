@@ -1,0 +1,21 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5173:5173"
+      - "3001:3001"
+    volumes:
+      # Persist notes data on the host
+      - notes-data:/root/.personal-note-app
+    environment:
+      - NODE_ENV=development
+      - GIT_SERVER_PORT=3001
+      - GIT_SERVER_HOST=localhost
+      - APP_DATA_DIR=.personal-note-app
+      - LOG_LEVEL=info
+    # Allow WebSocket connections (terminal feature)
+    stdin_open: true
+    tty: true
+
+volumes:
+  notes-data:

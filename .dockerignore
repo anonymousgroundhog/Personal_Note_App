@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-app
+dist-electron
+.git
+*.log
