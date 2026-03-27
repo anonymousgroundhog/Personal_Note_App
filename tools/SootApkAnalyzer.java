@@ -2,6 +2,7 @@ import soot.*;
 import soot.options.Options;
 import soot.jimple.*;
 import soot.util.*;
+import soot.toolkits.graph.ExceptionalUnitGraph;
 import soot.toolkits.graph.UnitGraph;
 
 import java.io.*;
@@ -207,7 +208,7 @@ public class SootApkAnalyzer {
         try {
           extractCFG(method, className);
         } catch (Exception e) {
-          // Skip CFG extraction if it fails
+          System.err.println("CFG extraction failed for " + method.getSignature() + ": " + e.getMessage());
         }
       }
     }
@@ -238,7 +239,8 @@ public class SootApkAnalyzer {
 
   private static void extractCFG(SootMethod method, String className) {
     Body body = method.getActiveBody();
-    UnitGraph graph = new UnitGraph(body);
+    // ExceptionalUnitGraph captures all control flow including exception edges
+    UnitGraph graph = new ExceptionalUnitGraph(body);
 
     CFGData cfg = new CFGData();
     cfg.className = className;
@@ -246,19 +248,22 @@ public class SootApkAnalyzer {
     cfg.methodSignature = method.getSignature();
 
     Map<Unit, CFGNodeData> unitToNode = new HashMap<>();
-    Map<Unit, Integer> unitToIndex = new HashMap<>();
 
     // Create nodes
     List<Unit> units = new ArrayList<>(body.getUnits());
+    // Heads are true entry points; tails are true exit points (returns/throws)
+    List<Unit> heads = graph.getHeads();
+    List<Unit> tails = graph.getTails();
+
     for (int i = 0; i < units.size(); i++) {
       Unit unit = units.get(i);
-      unitToIndex.put(unit, i);
 
       CFGNodeData node = new CFGNodeData();
       node.id = "unit_" + i;
-      node.label = unit.toString().length() > 30 ? unit.toString().substring(0, 30) : unit.toString();
-      node.isEntry = (i == 0);
-      node.isExit = (i == units.size() - 1);
+      String label = unit.toString();
+      node.label = label.length() > 60 ? label.substring(0, 60) : label;
+      node.isEntry = heads.contains(unit);
+      node.isExit = tails.contains(unit);
 
       cfg.nodes.add(node);
       unitToNode.put(unit, node);
@@ -284,7 +289,7 @@ public class SootApkAnalyzer {
     }
 
     // Only add if has nodes
-    if (cfg.nodes.size() > 0) {
+    if (!cfg.nodes.isEmpty()) {
       cfgDataList.add(cfg);
     }
   }
