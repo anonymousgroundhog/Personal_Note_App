@@ -2037,6 +2037,31 @@ sys.stdout.flush()
     return pathStr
   }
 
+  // Helper: ensure an output path lands on the host filesystem.
+  // The host home is bind-mounted at /root/host-home inside the container.
+  // If the user supplies a real host path like /home/sean/foo we rewrite it
+  // to /root/host-home/foo so apktool writes through the mount to the host.
+  function toHostPath(pathStr) {
+    if (!pathStr) return pathStr
+    // Already under the mount — leave it alone
+    if (pathStr.startsWith('/root/host-home')) return pathStr
+    // Looks like an absolute host path (/home/..., /Users/..., etc.)
+    // Strip the leading slash so we can join under the mount point
+    if (pathStr.startsWith('/')) return join('/root/host-home', pathStr)
+    return pathStr
+  }
+
+  // GET /security/host-info — expose host filesystem mapping to the frontend
+  if (req.method === 'GET' && url.pathname === '/security/host-info') {
+    setCors(res)
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({
+      hostHome: process.env.HOST_HOME || null,
+      containerMount: '/root/host-home',
+    }))
+    return
+  }
+
   // GET /security/caps — check Java and Android SDK availability
   if (req.method === 'GET' && url.pathname === '/security/caps') {
     setCors(res)
@@ -2107,8 +2132,17 @@ sys.stdout.flush()
   if (req.method === 'POST' && url.pathname === '/security/apk/upload') {
     setCors(res)
     try {
-      const body = await parseBody(req)
-      const { filename, data } = JSON.parse(body)
+      // Use a dedicated large-body reader — APKs can be 50MB+
+      const body = await new Promise((resolve, reject) => {
+        const chunks = []
+        req.on('data', chunk => chunks.push(chunk))
+        req.on('end', () => {
+          try { resolve(JSON.parse(Buffer.concat(chunks).toString())) }
+          catch (e) { reject(new Error('invalid JSON')) }
+        })
+        req.on('error', reject)
+      })
+      const { filename, data } = body
       const tmpDir = mkdtempSync(join(tmpdir(), 'apk_'))
       const apkPath = join(tmpDir, filename)
       writeFileSync(apkPath, Buffer.from(data, 'base64'))
@@ -2128,9 +2162,9 @@ sys.stdout.flush()
       const body = await parseBody(req)
       let { apkPath, sootJarPath, platformsPath, outputDir } = body
 
-      // Expand ~ in paths
+      // Expand ~ then ensure output lands on the host-mounted filesystem
       apkPath = expandPath(apkPath)
-      outputDir = expandPath(outputDir || join(tmpdir(), 'apktool_output'))
+      outputDir = toHostPath(expandPath(outputDir || '/root/host-home/apktool_output'))
 
       // Validate APK file exists
       if (!existsSync(apkPath)) {
@@ -2275,6 +2309,7 @@ sys.stdout.flush()
                 }
               }
 
+              result.outputDir = outputDir
               // Send result
               sendSSE('result', { data: result })
               sendSSE('done', {})

@@ -437,7 +437,7 @@ export default function SootCompilerView() {
     try {
       const data = await file.arrayBuffer()
       const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
-      const res = await fetch('http://localhost:3001/security/apk/upload', {
+      const res = await fetch('/security/apk/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename: file.name, data: base64 }),

@@ -105,8 +105,10 @@ function jimpleReaderPlugin() {
   }
 }
 
+const isDocker = process.env.VITE_DOCKER === 'true'
+
 export default defineConfig({
-  plugins: [react(), basicSsl(), jimpleReaderPlugin()],
+  plugins: [react(), ...(isDocker ? [] : [basicSsl()]), jimpleReaderPlugin()],
   base: './',
   server: {
     host: '0.0.0.0',

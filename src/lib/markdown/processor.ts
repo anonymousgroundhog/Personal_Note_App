@@ -149,7 +149,44 @@ function getTextContent(node: any): string {
   return ''
 }
 
-export function buildProcessor(onWikiLink?: (name: string) => void) {
+// ── Copyable code block component ────────────────────────────────────────────
+function CopyableCodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
+  const [copied, setCopied] = React.useState(false)
+
+  const handleCopy = () => {
+    const child = React.Children.toArray(children)[0]
+    const text = React.isValidElement(child)
+      ? String((child.props as { children?: unknown }).children ?? '')
+      : ''
+    navigator.clipboard.writeText(text.replace(/\n$/, '')).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return React.createElement(
+    'div',
+    { style: { position: 'relative' }, className: 'group/codeblock' },
+    React.createElement('pre', props, children),
+    React.createElement(
+      'button',
+      {
+        onClick: handleCopy,
+        title: 'Copy code',
+        className: [
+          'absolute top-2 right-2 px-2 py-1 rounded text-[10px] font-medium transition-all',
+          'opacity-0 group-hover/codeblock:opacity-100',
+          copied
+            ? 'bg-emerald-500 text-white'
+            : 'bg-gray-700 text-gray-300 hover:bg-gray-600',
+        ].join(' '),
+      },
+      copied ? 'Copied!' : 'Copy'
+    )
+  )
+}
+
+export function buildProcessor(onWikiLink?: (name: string) => void, resolveAttachment?: (path: string) => string | undefined) {
   return unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -192,7 +229,11 @@ export function buildProcessor(onWikiLink?: (name: string) => void) {
               return React.createElement(MermaidDiagram, { code })
             }
           }
-          return React.createElement('pre', props, children)
+          return React.createElement(CopyableCodeBlock, { ...props, children })
+        },
+        img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+          const resolved = src && resolveAttachment ? resolveAttachment(src) : undefined
+          return React.createElement('img', { src: resolved ?? src, alt, ...props })
         },
         blockquote: ({ children, ...props }: React.BlockquoteHTMLAttributes<HTMLElement>) => {
           const childArray = React.Children.toArray(children)

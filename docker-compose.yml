@@ -20,6 +20,7 @@ services:
       - LOG_LEVEL=info
       - JAVA_HOME=/usr/lib/jvm/java-17-openjdk
       - ANDROID_SDK_ROOT=/root/Android/Sdk
+      - VITE_DOCKER=true
     stdin_open: true
     tty: true
 

@@ -1,11 +1,40 @@
 import { create } from 'zustand'
 import type { FileTreeNode, NoteIndex } from '../types/note'
-import { buildFileTree, listFiles, readFile, getFileHandle, writeFile } from '../lib/fs/fileSystemApi'
+import { buildFileTree, listFiles, readFile, getFileHandle, writeFile, writeBinaryFile } from '../lib/fs/fileSystemApi'
 import { parseFrontmatter } from '../lib/markdown/processor'
 
 // In-memory store for the fallback (file input) mode — keyed by relative path
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fallbackFiles = new Map<string, File>()
+
+// Blob URL cache for attachments — relative path → object URL
+const attachmentBlobUrls = new Map<string, string>()
+
+export function getAttachmentUrl(relativePath: string): string | undefined {
+  return attachmentBlobUrls.get(relativePath)
+}
+
+function registerBlob(relativePath: string, blob: Blob): string {
+  const existing = attachmentBlobUrls.get(relativePath)
+  if (existing) URL.revokeObjectURL(existing)
+  const url = URL.createObjectURL(blob)
+  attachmentBlobUrls.set(relativePath, url)
+  return url
+}
+
+/** Scan attachments/ directory and register blob URLs for all files found */
+async function loadAttachmentBlobs(rootHandle: FileSystemDirectoryHandle): Promise<void> {
+  try {
+    const attachmentsDir = await rootHandle.getDirectoryHandle('attachments')
+    for await (const [name, handle] of attachmentsDir as unknown as AsyncIterable<[string, FileSystemHandle]>) {
+      if (handle.kind !== 'file') continue
+      try {
+        const file = await (handle as FileSystemFileHandle).getFile()
+        registerBlob(`attachments/${name}`, file)
+      } catch { /* skip unreadable */ }
+    }
+  } catch { /* attachments dir doesn't exist yet — that's fine */ }
+}
 
 export function isFsApiSupported(): boolean {
   return typeof window !== 'undefined' && 'showDirectoryPicker' in window
@@ -19,6 +48,8 @@ interface VaultState {
   fallbackName: string
   fileTree: FileTreeNode[]
   index: Map<string, NoteIndex>
+  /** Blob URLs for attachment files — relative path → object URL */
+  attachmentUrls: Map<string, string>
   isLoading: boolean
   openVault: () => Promise<void>
   /** Called by the hidden file input in fallback mode */
@@ -29,6 +60,8 @@ interface VaultState {
   saveNote: (path: string, content: string) => Promise<void>
   deleteNote: (path: string) => Promise<void>
   readNote: (path: string) => Promise<string>
+  /** Save a binary file into attachments/ and return its relative path */
+  saveAttachment: (file: File) => Promise<string | null>
 }
 
 async function buildIndex(rootHandle: FileSystemDirectoryHandle): Promise<Map<string, NoteIndex>> {
@@ -119,6 +152,7 @@ export const useVaultStore = create<VaultState>((set, get) => ({
   fallbackName: '',
   fileTree: [],
   index: new Map(),
+  attachmentUrls: new Map(),
   isLoading: false,
 
   openVault: async () => {
@@ -133,7 +167,8 @@ export const useVaultStore = create<VaultState>((set, get) => ({
         buildFileTree(handle),
         buildIndex(handle),
       ])
-      set({ fileTree, index, isLoading: false })
+      await loadAttachmentBlobs(handle)
+      set({ fileTree, index, isLoading: false, attachmentUrls: new Map(attachmentBlobUrls) })
     } catch (err) {
       set({ isLoading: false })
       // Chrome blocks sensitive directories (Desktop, home root, etc.) with SecurityError.
@@ -167,7 +202,9 @@ export const useVaultStore = create<VaultState>((set, get) => ({
 
   closeVault: () => {
     fallbackFiles.clear()
-    set({ rootHandle: null, fallbackMode: false, fallbackName: '', fileTree: [], index: new Map() })
+    attachmentBlobUrls.forEach(url => URL.revokeObjectURL(url))
+    attachmentBlobUrls.clear()
+    set({ rootHandle: null, fallbackMode: false, fallbackName: '', fileTree: [], index: new Map(), attachmentUrls: new Map() })
   },
 
   refreshIndex: async () => {
@@ -254,5 +291,34 @@ export const useVaultStore = create<VaultState>((set, get) => ({
     if (!rootHandle) return ''
     const handle = await getFileHandle(rootHandle, path)
     return readFile(handle)
+  },
+
+  saveAttachment: async (file: File): Promise<string | null> => {
+    const { rootHandle } = get()
+    if (!rootHandle) return null
+    try {
+      // Ensure we have write permission (may be needed after page reload)
+      const perm = await (rootHandle as unknown as { queryPermission: (o: object) => Promise<string>; requestPermission: (o: object) => Promise<string> })
+        .queryPermission({ mode: 'readwrite' })
+      if (perm !== 'granted') {
+        const req = await (rootHandle as unknown as { requestPermission: (o: object) => Promise<string> })
+          .requestPermission({ mode: 'readwrite' })
+        if (req !== 'granted') return null
+      }
+      const attachmentsDir = await rootHandle.getDirectoryHandle('attachments', { create: true })
+      // Deduplicate filenames by appending a timestamp if needed
+      const ext = file.name.includes('.') ? file.name.slice(file.name.lastIndexOf('.')) : ''
+      const base = file.name.includes('.') ? file.name.slice(0, file.name.lastIndexOf('.')) : file.name
+      const safeName = `${base}-${Date.now()}${ext}`
+      const fileHandle = await attachmentsDir.getFileHandle(safeName, { create: true })
+      await writeBinaryFile(fileHandle, file)
+      const relPath = `attachments/${safeName}`
+      registerBlob(relPath, file)
+      set({ attachmentUrls: new Map(attachmentBlobUrls) })
+      return relPath
+    } catch (err) {
+      console.error('saveAttachment failed:', err)
+      return null
+    }
   },
 }))

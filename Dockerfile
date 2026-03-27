@@ -33,8 +33,11 @@ RUN npm ci --ignore-scripts && \
 # Copy the rest of the source
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
 # Expose Vite dev server and git backend ports
 EXPOSE 5173 3001
 
-# Start both git-server and vite dev server
-CMD ["npm", "run", "dev"]
+# Use entrypoint script so SIGTERM/SIGINT are forwarded to child processes
+ENTRYPOINT ["./entrypoint.sh"]

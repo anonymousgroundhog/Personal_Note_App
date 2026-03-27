@@ -46,10 +46,16 @@ services:
       - $REAL_HOME:/root/host-home
       - $NOTES:/root/Notes
       - $SDK/platforms:/root/Android/Sdk/platforms
+    environment:
+      - HOST_HOME=$REAL_HOME
 EOF
 
 echo "Generated docker-compose.override.yml:"
 cat docker-compose.override.yml
 echo ""
 echo "Starting Docker..."
+echo ""
+echo "Once the container is ready, open your browser to:"
+echo "  http://localhost:5173"
+echo ""
 docker compose up --build

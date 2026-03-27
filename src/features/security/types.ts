@@ -69,6 +69,7 @@ export interface AnalysisResult {
   classes: ClassInfo[]
   libraries: LibraryInfo[]
   analysisTimeMs: number
+  outputDir?: string
 }
 
 export interface ApkAnalyzerConfig {

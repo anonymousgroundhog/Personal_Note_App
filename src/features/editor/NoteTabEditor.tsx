@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom/client'
 import { Eye, Edit3, Plus, RefreshCw, Tag, Download, Trash2, Bot, Send, Square, Loader2, FileInput, X, AlertCircle, Mic, MicOff, Volume2, VolumeX, Headphones } from 'lucide-react'
-import MarkdownEditor from './MarkdownEditor'
+import MarkdownEditor, { type MarkdownEditorHandle } from './MarkdownEditor'
 import MarkdownPreview from './MarkdownPreview'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
@@ -300,7 +300,7 @@ interface Props {
 }
 
 export default function NoteTabEditor({ path, isActive }: Props) {
-  const { readNote, saveNote, refreshIndex, deleteNote, index } = useVaultStore()
+  const { readNote, saveNote, refreshIndex, deleteNote, index, saveAttachment } = useVaultStore()
   const { closeTab } = useUiStore()
   const [content, setContent] = useState('')
   const [mode, setMode] = useState<EditorMode>('split')
@@ -313,6 +313,60 @@ export default function NoteTabEditor({ path, isActive }: Props) {
   const [isExporting, setIsExporting] = useState(false)
   const tagInputRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const editorRef = useRef<MarkdownEditorHandle>(null)
+
+  // Dictation — inserts speech directly at editor cursor position
+  const [dictationInterim, setDictationInterim] = useState('')
+  const handleDictationTranscript = useCallback((text: string, isFinal: boolean) => {
+    if (isFinal) {
+      editorRef.current?.insertAtCursor(text)
+      setDictationInterim('')
+    } else {
+      setDictationInterim(text)
+    }
+  }, [])
+  const { listening: dictating, supported: dictationSupported, start: startDictation, stop: stopDictation } = useSpeechInput(handleDictationTranscript)
+  const toggleDictation = useCallback(() => {
+    if (dictating) { stopDictation(); setDictationInterim('') }
+    else startDictation()
+  }, [dictating, startDictation, stopDictation])
+
+  // Attachment helpers — save file, then insert markdown link at cursor
+  const isEditMode = mode === 'edit' || mode === 'split'
+  const insertAttachment = useCallback(async (file: File) => {
+    const relPath = await saveAttachment(file)
+    if (!relPath) return
+    const isImage = file.type.startsWith('image/')
+    const md = isImage ? `![${file.name}](${relPath})` : `[${file.name}](${relPath})`
+    editorRef.current?.insertOnNewLine(md)
+  }, [saveAttachment])
+
+  const handleEditorDrop = useCallback((e: React.DragEvent) => {
+    if (!isEditMode) return
+    e.preventDefault()
+    const files = Array.from(e.dataTransfer.files)
+    files.forEach(f => insertAttachment(f))
+  }, [isEditMode, insertAttachment])
+
+  // Paste images from clipboard
+  useEffect(() => {
+    if (!isActive || (mode !== 'edit' && mode !== 'split')) return
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of Array.from(items)) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile()
+          if (file) {
+            e.preventDefault()
+            insertAttachment(file)
+          }
+        }
+      }
+    }
+    window.addEventListener('paste', handlePaste)
+    return () => window.removeEventListener('paste', handlePaste)
+  }, [isActive, mode, insertAttachment])
 
   useEffect(() => {
     if (!isActive) return
@@ -490,6 +544,20 @@ export default function NoteTabEditor({ path, isActive }: Props) {
               {isReadingNote ? <VolumeX size={15} /> : <Headphones size={15} />}
             </button>
           )}
+          {/* Dictation */}
+          {dictationSupported && (
+            <button
+              onClick={toggleDictation}
+              title={dictating ? 'Stop dictating' : 'Dictate into note at cursor'}
+              className={`p-1.5 rounded text-sm transition-colors ${
+                dictating
+                  ? 'bg-red-500 text-white animate-pulse'
+                  : 'hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400'
+              }`}
+            >
+              {dictating ? <MicOff size={15} /> : <Mic size={15} />}
+            </button>
+          )}
           {/* Tags */}
           <button
             onClick={() => setShowTagPanel(p => !p)}
@@ -600,10 +668,21 @@ export default function NoteTabEditor({ path, isActive }: Props) {
       {/* Editor / Preview + AI Panel */}
       <div className="flex-1 flex overflow-hidden">
         {/* Editor/Preview pane */}
-        <div className={`flex flex-1 overflow-hidden ${showAiPanel ? 'w-0' : ''}`}>
+        <div
+          className={`flex flex-1 overflow-hidden ${showAiPanel ? 'w-0' : ''}`}
+          onDrop={handleEditorDrop}
+          onDragOver={e => { if (isEditMode) e.preventDefault() }}
+        >
           {(mode === 'edit' || mode === 'split') && (
-            <div className={`${mode === 'split' ? 'w-1/2 border-r border-gray-200 dark:border-gray-700' : 'w-full'} overflow-hidden`}>
-              <MarkdownEditor value={content} onChange={handleChange} />
+            <div className={`${mode === 'split' ? 'w-1/2 border-r border-gray-200 dark:border-gray-700' : 'w-full'} flex flex-col overflow-hidden`}>
+              {dictating && dictationInterim && (
+                <div className="px-3 py-1 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800 text-xs text-red-600 dark:text-red-400 italic truncate flex-shrink-0">
+                  {dictationInterim}
+                </div>
+              )}
+              <div className="flex-1 overflow-hidden">
+                <MarkdownEditor ref={editorRef} value={content} onChange={handleChange} />
+              </div>
             </div>
           )}
           {(mode === 'preview' || mode === 'split') && (

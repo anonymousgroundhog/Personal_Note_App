@@ -109,6 +109,7 @@
       "Bash(pkill -9 -f \"node\\\\|git-server\\\\|electron\\\\|vite\")",
       "Bash(docker info:*)",
       "Bash(sudo tee:*)",
+      "Bash(apktool:*)",
       "Bash(docker run:*)",
       "Bash(sudo docker:*)",
       "Bash(echo \"HOST_HOME=$HOME\")",
