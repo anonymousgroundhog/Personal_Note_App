@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Copy, Check, FolderOpen, HelpCircle, X } from 'lucide-react'
 import type { AnalysisResult } from './types'
 import { API_CATEGORY_COLORS } from './types'
+import PathPickerModal from '../../components/PathPickerModal'
 
 type ResultTab = 'apis' | 'strings' | 'classes' | 'libraries' | 'jimple'
 type AnalysisStatus = 'idle' | 'analyzing' | 'done' | 'error'
@@ -334,6 +335,7 @@ export default function JimpleAnalyzerView() {
   const [copied, setCopied] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
   const [browsing, setBrowsing] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
 
   // Jimple viewer state
@@ -344,20 +346,7 @@ export default function JimpleAnalyzerView() {
   const [classSearchFilter, setClassSearchFilter] = useState('')
   const [showJimpleIRInfo, setShowJimpleIRInfo] = useState(false)
 
-  const handleBrowse = async () => {
-    setBrowsing(true)
-    try {
-      const res = await fetch('http://localhost:3001/security/jimple/browse')
-      if (res.status === 204) return // user cancelled
-      if (!res.ok) throw new Error(`Browse failed: ${res.status}`)
-      const { path } = await res.json()
-      if (path) setFolderPath(path)
-    } catch {
-      // server unavailable — silently ignore so user can still type manually
-    } finally {
-      setBrowsing(false)
-    }
-  }
+  const handleBrowse = () => setPickerOpen(true)
 
   // Auto-analyze when path is provided
   useEffect(() => {
@@ -565,6 +554,14 @@ export default function JimpleAnalyzerView() {
     <div className="flex flex-col h-full w-full overflow-hidden">
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
       {showJimpleIRInfo && <JimpleIRInfoPanel onClose={() => setShowJimpleIRInfo(false)} />}
+      <PathPickerModal
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={path => { setFolderPath(path); setPickerOpen(false) }}
+        title="Select Jimple Folder"
+        dirOnly={true}
+        startPath="/root/host-home"
+      />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
         {/* Folder Path Input */}
         <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-surface-800">

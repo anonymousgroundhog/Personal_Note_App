@@ -257,6 +257,27 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // GET /browse/ls?path=<dir>  — list directories and files at a path
+  if (req.method === 'GET' && url.pathname === '/browse/ls') {
+    setCors(res)
+    try {
+      const reqPath = resolve(url.searchParams.get('path') || homedir())
+      const entries = readdirSync(reqPath, { withFileTypes: true })
+      const dirs = entries
+        .filter(e => e.isDirectory() && !e.name.startsWith('.'))
+        .map(e => ({ name: e.name, path: join(reqPath, e.name), type: 'dir' }))
+      const files = entries
+        .filter(e => e.isFile() && !e.name.startsWith('.'))
+        .map(e => ({ name: e.name, path: join(reqPath, e.name), type: 'file' }))
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ path: reqPath, entries: [...dirs, ...files] }))
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+    }
+    return
+  }
+
   // POST /git  (buffered — returns when command finishes)
   if (req.method === 'POST' && url.pathname === '/git') {
     try {

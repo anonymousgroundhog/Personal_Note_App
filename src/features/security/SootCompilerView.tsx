@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { FolderOpen, Play, Square, HelpCircle, X } from 'lucide-react'
 import type { MethodCFG } from './types'
+import PathPickerModal from '../../components/PathPickerModal'
 
 type RunStatus = 'idle' | 'running' | 'done' | 'error'
 type DisplayTab = 'output' | 'cfg'
@@ -399,65 +400,56 @@ function CFGVisualization({ cfg }: { cfg: MethodCFG }) {
 export default function SootCompilerView() {
   const [apkPath, setApkPath] = useState('')
   const [outputDir, setOutputDir] = useState('sootOutput')
-  const [androidJarsPath, setAndroidJarsPath] = useState('/home/sean/Android/Sdk/platforms')
+  const [androidJarsPath, setAndroidJarsPath] = useState('/root/Android/Sdk/platforms')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [browsingApk, setBrowsingApk] = useState(false)
   const [browsingOut, setBrowsingOut] = useState(false)
   const [browsingJars, setBrowsingJars] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [pickerOpen, setPickerOpen] = useState<'apk' | 'output' | 'jars' | null>(null)
   const [cfgData, setCFGData] = useState<MethodCFG[] | null>(null)
   const [selectedCFGIndex, setSelectedCFGIndex] = useState(0)
   const [displayTab, setDisplayTab] = useState<DisplayTab>('output')
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+  const apkFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [logs])
 
-  const browseApk = async () => {
+  const browseApk = () => setPickerOpen('apk')
+  const browseOutput = () => setPickerOpen('output')
+  const browseJars = () => setPickerOpen('jars')
+
+  const onPickerSelect = (path: string) => {
+    if (pickerOpen === 'apk') setApkPath(path)
+    else if (pickerOpen === 'output') setOutputDir(path)
+    else if (pickerOpen === 'jars') setAndroidJarsPath(path)
+    setPickerOpen(null)
+  }
+
+  const onApkFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
     setBrowsingApk(true)
     try {
-      const res = await fetch('http://localhost:3001/security/apk/browse')
-      if (res.status === 204) return
-      if (!res.ok) throw new Error(`Browse failed: ${res.status}`)
-      const { path } = await res.json()
-      if (path) setApkPath(path)
-    } catch {
-      // server unavailable — user can type manually
+      const data = await file.arrayBuffer()
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
+      const res = await fetch('http://localhost:3001/security/apk/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, data: base64 }),
+      })
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+      const { apkPath: uploaded } = await res.json()
+      if (uploaded) setApkPath(uploaded)
+    } catch (err) {
+      console.error('APK upload failed', err)
     } finally {
       setBrowsingApk(false)
-    }
-  }
-
-  const browseOutput = async () => {
-    setBrowsingOut(true)
-    try {
-      const res = await fetch('http://localhost:3001/security/jimple/browse?title=Select+Output+Directory')
-      if (res.status === 204) return
-      if (!res.ok) throw new Error(`Browse failed: ${res.status}`)
-      const { path } = await res.json()
-      if (path) setOutputDir(path)
-    } catch {
-      // server unavailable — user can type manually
-    } finally {
-      setBrowsingOut(false)
-    }
-  }
-
-  const browseJars = async () => {
-    setBrowsingJars(true)
-    try {
-      const res = await fetch('http://localhost:3001/security/jimple/browse?title=Select+Android+Platforms+Directory')
-      if (res.status === 204) return
-      if (!res.ok) throw new Error(`Browse failed: ${res.status}`)
-      const { path } = await res.json()
-      if (path) setAndroidJarsPath(path)
-    } catch {
-      // server unavailable — user can type manually
-    } finally {
-      setBrowsingJars(false)
+      e.target.value = ''
     }
   }
 
@@ -617,6 +609,31 @@ export default function SootCompilerView() {
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       {showHelp && <HelpPanel onClose={() => setShowHelp(false)} />}
+      <PathPickerModal
+        isOpen={pickerOpen === 'apk'}
+        onClose={() => setPickerOpen(null)}
+        onSelect={onPickerSelect}
+        title="Select APK File"
+        dirOnly={false}
+        fileFilter=".apk"
+        startPath="/root/host-home"
+      />
+      <PathPickerModal
+        isOpen={pickerOpen === 'output'}
+        onClose={() => setPickerOpen(null)}
+        onSelect={onPickerSelect}
+        title="Select Output Directory"
+        dirOnly={true}
+        startPath="/root/host-home"
+      />
+      <PathPickerModal
+        isOpen={pickerOpen === 'jars'}
+        onClose={() => setPickerOpen(null)}
+        onSelect={onPickerSelect}
+        title="Select Android Platforms Directory"
+        dirOnly={true}
+        startPath="/root/host-home/Android/Sdk/platforms"
+      />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
 
         {/* APK Path */}
@@ -638,10 +655,17 @@ export default function SootCompilerView() {
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">APK File</label>
               <div className="flex gap-2">
                 <input
+                  ref={apkFileInputRef}
+                  type="file"
+                  accept=".apk"
+                  className="hidden"
+                  onChange={onApkFileSelected}
+                />
+                <input
                   type="text"
                   value={apkPath}
                   onChange={e => setApkPath(e.target.value)}
-                  placeholder="e.g. /home/user/target.apk"
+                  placeholder="e.g. /tmp/apk_xyz/target.apk"
                   className="flex-1 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                 />
                 <button

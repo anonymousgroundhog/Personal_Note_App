@@ -1,21 +1,29 @@
 services:
   app:
-    build: .
+    build:
+      context: .
+      network: host
     ports:
       - "5173:5173"
       - "3001:3001"
     volumes:
-      # Persist notes data on the host
-      - notes-data:/root/.personal-note-app
+      # Soot tools and app config persisted across rebuilds
+      - soot-data:/root/.note-app-security
+      - app-data:/root/.personal-note-app
+      # APK upload temp dir
+      - apk-tmp:/tmp
     environment:
       - NODE_ENV=development
       - GIT_SERVER_PORT=3001
       - GIT_SERVER_HOST=localhost
       - APP_DATA_DIR=.personal-note-app
       - LOG_LEVEL=info
-    # Allow WebSocket connections (terminal feature)
+      - JAVA_HOME=/usr/lib/jvm/java-17-openjdk
+      - ANDROID_SDK_ROOT=/root/Android/Sdk
     stdin_open: true
     tty: true
 
 volumes:
-  notes-data:
+  soot-data:
+  app-data:
+  apk-tmp:

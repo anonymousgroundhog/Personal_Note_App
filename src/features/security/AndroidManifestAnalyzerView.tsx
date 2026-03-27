@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Copy, Check, AlertCircle, FolderOpen } from 'lucide-react'
 import type { AnalysisResult } from './types'
+import PathPickerModal from '../../components/PathPickerModal'
 
 interface ManifestData {
   packageName: string
@@ -49,15 +50,9 @@ export default function AndroidManifestAnalyzerView() {
   const [activeTab, setActiveTab] = useState<ResultTab>('metadata')
   const [copied, setCopied] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-  const handleBrowse = async () => {
-    try {
-      const res = await fetch('/security/manifest/browse')
-      const data = await res.json()
-      if (data.path) setFilePath(data.path)
-    } catch {
-      // ignore — user likely cancelled or server unavailable
-    }
-  }
+  const [pickerOpen, setPickerOpen] = useState(false)
+
+  const handleBrowse = () => setPickerOpen(true)
 
   // Auto-analyze when path is provided
   useEffect(() => {
@@ -132,6 +127,15 @@ export default function AndroidManifestAnalyzerView() {
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
+      <PathPickerModal
+        isOpen={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={path => { setFilePath(path); setPickerOpen(false) }}
+        title="Select AndroidManifest.xml"
+        dirOnly={false}
+        fileFilter=".xml"
+        startPath="/root/host-home"
+      />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
         {/* File Path Input */}
         <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-surface-800">
@@ -143,7 +147,7 @@ export default function AndroidManifestAnalyzerView() {
               type="text"
               value={filePath}
               onChange={e => setFilePath(e.target.value)}
-              placeholder="e.g. ~/app/AndroidManifest.xml or /path/to/manifest"
+              placeholder="e.g. /notes/sootOutput/AndroidManifest.xml"
               className="flex-1 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
             />
             <button

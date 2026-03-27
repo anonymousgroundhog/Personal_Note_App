@@ -75,6 +75,99 @@ For more details on building and distribution, see:
 
 ---
 
+## Running with Docker
+
+Docker lets you run the app without installing Node.js, git, or any other dependencies on your machine. Works on **Linux, macOS, and Windows**.
+
+### Prerequisites
+
+- [Docker](https://docs.docker.com/get-docker/) installed and running
+- [Docker Compose](https://docs.docker.com/compose/install/) (included with Docker Desktop)
+
+### Setup
+
+**1. Fix Docker DNS (required on corporate/university networks)**
+
+If your network uses custom DNS servers (e.g., a university or workplace network), Docker containers may fail to resolve package mirrors during the build. Configure Docker to use your network's DNS:
+
+```bash
+# Find your DNS servers
+cat /etc/resolv.conf   # Linux — look for "nameserver" lines
+
+# Create Docker daemon config with your DNS servers
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json << 'EOF'
+{
+  "dns": ["<your-dns-1>", "<your-dns-2>", "8.8.8.8"]
+}
+EOF
+
+# Restart Docker
+sudo systemctl restart docker
+```
+
+On **macOS/Windows**, open Docker Desktop → Settings → Docker Engine and add the `dns` key to the JSON config there.
+
+> **Skip this step** if you're on a home network or if Docker builds work fine already.
+
+**2. Clone the repo**
+
+```bash
+git clone <repo-url>
+cd personal-note-app
+```
+
+**3. Build and start**
+
+```bash
+docker compose up --build
+```
+
+This works the same on Linux, macOS, and Windows. The Docker image runs Linux internally regardless of your host OS. Java 17 and apktool are installed automatically inside the container.
+
+**4. Open the app**
+
+```
+https://localhost:5173
+```
+
+Your browser will show a certificate warning (expected — the app uses a self-signed cert for local HTTPS). Click **Advanced → Proceed** to continue.
+
+### Subsequent Runs
+
+```bash
+docker compose up       # start
+docker compose down     # stop
+```
+
+### Working with Files
+
+The setup script mounts your host home directory into the container at `/root/host-home`. The Browse buttons in the Security tools open a file picker that starts at `/root/host-home`, giving you access to everything under your home directory on the host.
+
+Your notes folder is also mounted at `/root/Notes` for quick access.
+
+### Android Security Analysis (Soot) in Docker
+
+Java 17 and apktool are installed automatically in the container. `JAVA_HOME` is detected at build time and works on both `amd64` (Linux/Windows) and `arm64` (Apple Silicon).
+
+**Android SDK platforms** are mounted from `ANDROID_SDK_ROOT/platforms` on your host (set by the setup script). If you don't have the SDK installed, use the **Install** button in the Security view to download the platform JARs — they are saved to `~/.note-app-security/android-platforms` on your host and persist across rebuilds.
+
+**APK files:** Use the Browse button in the Soot Compiler tab to navigate your host filesystem under `/root/host-home` and select any `.apk` file.
+
+### Environment Variables
+
+The setup script writes a `.env` file with paths for your machine. You can edit it manually if needed:
+
+| Variable | Description | Linux example | macOS example | Windows example |
+|---|---|---|---|---|
+| `HOST_HOME` | Your host home directory | `/home/yourname` | `/Users/yourname` | `C:/Users/YourName` |
+| `NOTES_DIR` | Notes folder on host | `/home/yourname/Notes` | `/Users/yourname/Notes` | `C:/Users/YourName/Notes` |
+| `ANDROID_SDK_ROOT` | Android SDK on host | `/home/yourname/Android/Sdk` | `/Users/yourname/Library/Android/sdk` | `C:/Users/YourName/AppData/Local/Android/Sdk` |
+| `GIT_SERVER_PORT` | Backend git server port | `3001` | `3001` | `3001` |
+| `LOG_LEVEL` | Log verbosity | `info` | `info` | `info` |
+
+---
+
 ## Getting Started: Complete Setup Guide
 
 This guide will walk you through installing everything you need to run the Personal Note App. Even if you're not technical, just follow the steps for your operating system.
