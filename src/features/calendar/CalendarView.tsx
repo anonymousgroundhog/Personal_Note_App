@@ -23,13 +23,18 @@ const LOCAL_PALETTE: Record<string, string> = {
   'daily': '#6b7280',
   'event': '#f59e0b',
   'local': '#8b5cf6',
+  'gsd-tasks': '#3b82f6',
 }
 
 function calendarColor(id: string): string {
   return LOCAL_PALETTE[id] ?? '#8b5cf6'
 }
 
-export default function CalendarView() {
+interface CalendarViewProps {
+  extraEvents?: CalendarEvent[]
+}
+
+export default function CalendarView({ extraEvents }: CalendarViewProps = {}) {
   const { index, createNote } = useVaultStore()
   const { setLocalEvents, addImportedCalendar, removeImportedCalendar, importedCalendars, getAllEvents, hiddenSources, toggleSource } = useCalendarStore()
   const { setActiveNote, setActiveView } = useUiStore()
@@ -45,11 +50,12 @@ export default function CalendarView() {
 
   // Derive unique local calendar IDs from events
   const localCalendarIds = useMemo(() => {
-    const events = parseCalendarEvents(index)
+    const vaultEvents = parseCalendarEvents(index)
     const ids = new Set<string>()
-    events.forEach(e => ids.add(e.extendedProps?.calendarId || 'local'))
+    vaultEvents.forEach(e => ids.add(e.extendedProps?.calendarId || 'local'))
+    extraEvents?.forEach(e => { if (e.extendedProps?.calendarId) ids.add(e.extendedProps.calendarId) })
     return Array.from(ids).sort()
-  }, [index])
+  }, [index, extraEvents])
 
   const handleEventClick = (info: { event: { id: string; title: string; startStr: string; endStr: string; extendedProps: Record<string, unknown> } }) => {
     const ev: CalendarEvent = {
@@ -107,7 +113,12 @@ date: "${info.dateStr}"
     setShowImportMenu(false)
   }
 
-  const events = getAllEvents()
+  const events = useMemo(() => {
+    const all = getAllEvents()
+    if (!extraEvents?.length) return all
+    const extraIds = new Set(extraEvents.map(e => e.id))
+    return [...all.filter(e => !extraIds.has(e.id)), ...extraEvents]
+  }, [getAllEvents, extraEvents])
 
   return (
     <div className="flex-1 flex overflow-hidden bg-white dark:bg-surface-900">

@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -187,16 +187,17 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section:
   { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD',             section: 'Tools' },
   { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat',         section: 'Tools' },
   { view: 'audio-to-text', icon: <Mic size={18} />,     label: 'Audio to Text',   section: 'Tools' },
-  { view: 'finance',  icon: <DollarSign size={18} />,   label: 'Finance',         section: 'Tools' },
   { view: 'security', icon: <Shield size={18} />,       label: 'Security',        section: 'Tools' },
   { view: 'minecraft', icon: <Pickaxe size={18} />,     label: 'Minecraft',       section: 'Tools' },
+  { view: 'finance',  icon: <DollarSign size={18} />,   label: 'Finance Tracker', section: 'Finances' },
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
   { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility',  section: 'Accessibility' },
+  { view: 'academia', icon: <GraduationCap size={18} />, label: 'Teaching, Research & Service', section: 'Academia Related' },
   { view: 'help', icon: <HelpCircle size={18} />,       label: 'Help',            section: 'Help' },
 ]
 
 // Sections in display order; 'Core' has no visible header by default
-const NAV_SECTIONS = ['Core', 'Tools', 'Communications', 'Accessibility', 'Help'] as const
+const NAV_SECTIONS = ['Core', 'Tools', 'Finances', 'Communications', 'Accessibility', 'Academia Related', 'Help'] as const
 
 function CustomizeSidebarPanel({ onClose }: { onClose: () => void }) {
   const { hiddenNavItems, toggleNavItemVisibility } = useUiStore()

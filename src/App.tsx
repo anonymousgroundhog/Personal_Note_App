@@ -15,6 +15,7 @@ import HelpView from './features/help/HelpView'
 import AccessibilityView from './features/accessibility/AccessibilityView'
 import AudioToTextView from './features/audio/AudioToTextView'
 import MinecraftView from './features/minecraft/MinecraftView'
+import AcademiaView from './features/academia/AcademiaView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -99,6 +100,8 @@ export default function App() {
           <AudioToTextView />
         ) : activeView === 'minecraft' ? (
           <MinecraftView />
+        ) : activeView === 'academia' ? (
+          <AcademiaView />
         ) : activeView === 'help' ? (
           <HelpView />
         ) : !hasVault ? (

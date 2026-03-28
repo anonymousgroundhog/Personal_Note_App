@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
+import { useGsdStore } from '../gsd/gsdStore'
 import { parseGanttTasks } from '../gantt/ganttParser'
 import { parseFrontmatter } from '../../lib/markdown/processor'
 import type { GanttTask } from '../../types/gantt'
@@ -77,6 +78,7 @@ function ProgressBar({ value }: { value: number }) {
 export default function TasksView() {
   const { index, readNote, saveNote, createNote } = useVaultStore()
   const { setActiveNote, setActiveView } = useUiStore()
+  const { items: gsdItems, projects: gsdProjects } = useGsdStore()
   const [groupBy, setGroupBy] = useState<GroupBy>('project')
   const [sortBy, setSortBy] = useState<SortBy>('start')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
@@ -85,10 +87,14 @@ export default function TasksView() {
   const [editState, setEditState] = useState<EditState | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const projects = useMemo(() => parseGanttTasks(index), [index])
+  const vaultProjects = useMemo(() => parseGanttTasks(index), [index])
 
   const allTasks = useMemo<RichTask[]>(() => {
-    return projects.flatMap(p =>
+    const today = todayIso()
+    const ninetyDays = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
+
+    // Vault Gantt tasks
+    const vaultTasks: RichTask[] = vaultProjects.flatMap(p =>
       p.tasks.map(t => {
         const note = index.get(t.notePath || '')
         const fm = note?.frontmatter || {}
@@ -105,7 +111,34 @@ export default function TasksView() {
         }
       })
     )
-  }, [projects, index])
+
+    // GSD items — only show those not already in a vault Gantt project
+    const vaultTaskIds = new Set(vaultTasks.map(t => t.id))
+    const gsdTasks: RichTask[] = gsdItems
+      .filter(i => i.status !== 'done' && !vaultTaskIds.has(i.id))
+      .map(i => {
+        const proj = gsdProjects.find(p => p.id === i.projectId)
+        const gsdStatus = i.status === 'next' ? 'in-progress' : i.status === 'waiting' ? 'blocked' : 'not-started'
+        const gsdPriority = i.priority ?? 'medium'
+        return {
+          id: i.id,
+          name: i.title,
+          start: i.dueDate
+            ? new Date(new Date(i.dueDate).getTime() - 7 * 86400000).toISOString().slice(0, 10)
+            : today,
+          end: i.dueDate ?? ninetyDays,
+          progress: 0,
+          project: proj?.name ?? 'GSD',
+          projectName: proj?.name ?? 'GSD',
+          status: gsdStatus,
+          priority: gsdPriority,
+          assignee: '',
+          depends_on: [],
+        }
+      })
+
+    return [...vaultTasks, ...gsdTasks]
+  }, [vaultProjects, index, gsdItems, gsdProjects])
 
   // Separate top-level tasks and subtasks
   const topLevelTasks = useMemo(() => allTasks.filter(t => !t.parentTaskId), [allTasks])
@@ -398,7 +431,7 @@ Subtask of: [[${parent.notePath?.split('/').pop()?.replace(/\.md$/, '') ?? paren
             <div className="flex flex-col items-center justify-center h-48 gap-2 text-gray-400">
               <CheckSquare size={36} className="opacity-30" />
               <p className="text-sm">No tasks found.</p>
-              <p className="text-xs">Create notes with <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">type: gantt-task</code> in frontmatter.</p>
+              <p className="text-xs">Add items to GSD projects or create notes with <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">type: gantt-task</code> in frontmatter.</p>
             </div>
           ) : (
             groups.map(({ key, tasks }) => {

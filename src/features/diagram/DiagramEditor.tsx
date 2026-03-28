@@ -7,12 +7,189 @@ import { nodeShapePath } from './diagramUtils'
 import { computeMindmapLayout, getMindmapNodeColor, getMindmapBranchColor } from './mindmapLayout'
 import { MINDMAP_THEMES, getActiveTheme } from './mindmapThemes'
 
+// ─── WebviewNode overlay component ───────────────────────────────────────────
+
+interface WebviewNodeProps {
+  node: { id: string; x: number; y: number; w: number; h: number; label: string; webviewUrl?: string }
+  viewport: { x: number; y: number; scale: number }
+  isSel: boolean
+  darkMode: boolean
+  isEditing: boolean
+  editingValue: string
+  onFocusUrl: () => void
+  onChangeUrl: (v: string) => void
+  onCommitUrl: (raw: string) => void
+  onCancelEdit: () => void
+  onReload: () => void
+}
+
+function WebviewNode({
+  node, viewport, isSel, darkMode,
+  isEditing, editingValue,
+  onFocusUrl, onChangeUrl, onCommitUrl, onCancelEdit, onReload,
+}: WebviewNodeProps) {
+  // Whether the user has chosen to show the iframe (toggled on demand)
+  const [showIframe, setShowIframe] = useState(false)
+
+  // Reset iframe toggle whenever URL changes
+  useEffect(() => { setShowIframe(false) }, [node.webviewUrl])
+
+  const left   = node.x * viewport.scale + viewport.x
+  const top    = node.y * viewport.scale + viewport.y
+  const width  = node.w * viewport.scale
+  const height = node.h * viewport.scale
+  const titleH = 28 * viewport.scale
+  const bodyH  = height - titleH
+
+  return (
+    <div className="absolute" style={{ left, top, width, height, pointerEvents: 'none' }}>
+
+      {/* Title bar — always interactive */}
+      {(isSel || isEditing) && (
+        <div
+          className="absolute top-0 left-0 right-0 flex items-center gap-1 px-1.5"
+          style={{ height: titleH, pointerEvents: 'auto', zIndex: 20 }}
+          onMouseDown={e => e.stopPropagation()}
+        >
+          <span style={{ fontSize: 13 * viewport.scale }}>🌐</span>
+          <input
+            key={node.id + '-url'}
+            type="text"
+            defaultValue={node.webviewUrl ?? ''}
+            autoFocus={isEditing}
+            placeholder="https://example.com"
+            onFocus={e => { onFocusUrl(); e.target.select() }}
+            onChange={e => onChangeUrl(e.target.value)}
+            onBlur={e => onCommitUrl(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter') e.currentTarget.blur()
+              if (e.key === 'Escape') onCancelEdit()
+              e.stopPropagation()
+            }}
+            style={{
+              flex: 1, fontSize: Math.max(9, 11 * viewport.scale),
+              background: 'transparent', border: 'none', outline: 'none',
+              color: isSel ? 'white' : darkMode ? '#a5b4fc' : '#4338ca',
+              fontFamily: 'inherit', minWidth: 0,
+            }}
+          />
+          {node.webviewUrl && (
+            <button
+              title="Reload"
+              style={{ fontSize: 11 * viewport.scale, color: isSel ? 'white' : '#6366f1', lineHeight: 1, flexShrink: 0 }}
+              onClick={onReload}
+            >↺</button>
+          )}
+        </div>
+      )}
+
+      {/* Body area */}
+      {node.webviewUrl ? (
+        <div style={{ position: 'absolute', left: 0, top: titleH, width: '100%', height: bodyH }}>
+
+          {showIframe ? (
+            /* ── Iframe view ── */
+            <>
+              <iframe
+                src={node.webviewUrl}
+                title={node.label}
+                sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+                style={{
+                  position: 'absolute', inset: 0, width: '100%', height: '100%',
+                  border: 'none', borderRadius: '0 0 6px 6px',
+                  pointerEvents: isSel ? 'none' : 'auto',
+                }}
+              />
+              {/* "Back" button overlay — always accessible when selected */}
+              {isSel && (
+                <button
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={() => setShowIframe(false)}
+                  style={{
+                    position: 'absolute', bottom: 8, right: 8,
+                    padding: '4px 10px', background: 'rgba(0,0,0,0.55)',
+                    color: 'white', border: 'none', borderRadius: 5,
+                    fontSize: Math.max(9, 10 * viewport.scale), cursor: 'pointer',
+                    pointerEvents: 'auto',
+                  }}
+                >
+                  ✕ Close embed
+                </button>
+              )}
+            </>
+          ) : (
+            /* ── Default: URL card + actions ── */
+            <div
+              style={{
+                position: 'absolute', inset: 0, borderRadius: '0 0 6px 6px',
+                background: darkMode ? '#1e1e2e' : '#f5f5ff',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: Math.max(8, 10 * viewport.scale),
+                padding: Math.max(12, 16 * viewport.scale),
+                pointerEvents: 'auto',
+              }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              <span style={{ fontSize: Math.max(20, 26 * viewport.scale) }}>🌐</span>
+              <p style={{
+                margin: 0, textAlign: 'center',
+                fontSize: Math.max(9, 11 * viewport.scale),
+                color: darkMode ? '#9ca3af' : '#6b7280',
+                wordBreak: 'break-all', maxWidth: '100%',
+                lineHeight: 1.4,
+              }}>{node.webviewUrl}</p>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  onClick={() => window.open(node.webviewUrl, '_blank', 'noopener,noreferrer')}
+                  style={{
+                    padding: `${Math.max(5, 6 * viewport.scale)}px ${Math.max(10, 12 * viewport.scale)}px`,
+                    background: '#6366f1', color: 'white', border: 'none', borderRadius: 6,
+                    fontSize: Math.max(9, 11 * viewport.scale), cursor: 'pointer', fontWeight: 500,
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <span>↗</span> Open in new tab
+                </button>
+                <button
+                  onClick={() => setShowIframe(true)}
+                  style={{
+                    padding: `${Math.max(5, 6 * viewport.scale)}px ${Math.max(10, 12 * viewport.scale)}px`,
+                    background: 'transparent', color: darkMode ? '#818cf8' : '#6366f1',
+                    border: `1px solid ${darkMode ? '#4338ca' : '#c7d2fe'}`,
+                    borderRadius: 6,
+                    fontSize: Math.max(9, 11 * viewport.scale), cursor: 'pointer', fontWeight: 500,
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}
+                >
+                  <span>⬜</span> Try embed
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* No URL yet */
+        <div style={{
+          position: 'absolute', left: 0, top: titleH, width: '100%', height: bodyH,
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          gap: 6, pointerEvents: 'none',
+          color: darkMode ? '#6366f1' : '#818cf8',
+          fontSize: Math.max(10, 12 * viewport.scale),
+        }}>
+          <span style={{ fontSize: Math.max(20, 28 * viewport.scale) }}>🌐</span>
+          <span style={{ fontWeight: 500 }}>Double-click to enter URL</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type NodeShape =
   | 'rect' | 'diamond' | 'circle' | 'parallelogram' | 'cylinder' | 'hexagon'
   | 'server' | 'cloud' | 'router' | 'firewall' | 'laptop' | 'phone'
-  | 'note'
+  | 'note' | 'webview'
 
 export interface DiagramNode {
   id: string
@@ -27,6 +204,7 @@ export interface DiagramNode {
   strokeWidth: number
   notePath?: string
   isRoot?: boolean
+  webviewUrl?: string
 }
 
 export interface DiagramEdge {
@@ -66,6 +244,8 @@ const PALETTE_SHAPES: { shape: NodeShape; label: string; icon: string; section: 
   { shape: 'parallelogram', label: 'I/O',       icon: '▱', section: 'Flow' },
   { shape: 'cylinder',      label: 'Database',  icon: '⬭', section: 'Flow' },
   { shape: 'hexagon',       label: 'Prep',      icon: '⬡', section: 'Flow' },
+  // Web
+  { shape: 'webview',  label: 'Web View', icon: '🌐', section: 'Web' },
   // Network
   { shape: 'server',   label: 'Server',   icon: '🖥', section: 'Network' },
   { shape: 'cloud',    label: 'Cloud',    icon: '☁', section: 'Network' },
@@ -261,6 +441,9 @@ export default function DiagramEditor() {
   const svgRef = useRef<SVGSVGElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  // ── Webview URL editing ──
+  const [editingWebviewUrl, setEditingWebviewUrl] = useState<{ id: string; value: string } | null>(null)
+
   // ── Palette drag ──
   const paletteDragRef = useRef<{ shape: NodeShape } | null>(null)
 
@@ -369,6 +552,10 @@ export default function DiagramEditor() {
     if (connectMode) return
     const node = diagram.nodes.find(n => n.id === nodeId)
     if (!node) return
+    if (node.shape === 'webview') {
+      setEditingWebviewUrl({ id: nodeId, value: node.webviewUrl ?? '' })
+      return
+    }
     setEditingLabel({ type: 'node', id: nodeId, value: node.label })
   }, [connectMode, diagram])
 
@@ -583,14 +770,18 @@ export default function DiagramEditor() {
       paletteDragRef.current = null
       const [cx, cy] = clientToCanvas(e.clientX, e.clientY)
       const isNetwork = ['server','cloud','router','firewall','laptop','phone'].includes(shape)
+      const isWebview = shape === 'webview'
+      const nodeW = isWebview ? 480 : DEFAULT_NODE_W
+      const nodeH = isWebview ? 320 : isNetwork ? 80 : DEFAULT_NODE_H
       const newNode: DiagramNode = {
         id: uid(),
-        x: snap(cx - DEFAULT_NODE_W / 2), y: snap(cy - DEFAULT_NODE_H / 2),
-        w: DEFAULT_NODE_W, h: isNetwork ? 80 : DEFAULT_NODE_H,
+        x: snap(cx - nodeW / 2), y: snap(cy - nodeH / 2),
+        w: nodeW, h: nodeH,
         shape, label: PALETTE_SHAPES.find(p => p.shape === shape)?.label ?? shape,
         color: COLOR_PRESETS[diagram.nodes.length % COLOR_PRESETS.length],
         textColor: darkMode ? '#e5e7eb' : '#1f2937',
         strokeWidth: 1.5,
+        webviewUrl: isWebview ? '' : undefined,
       }
       updateDiagram({ nodes: [...diagram.nodes, newNode] })
       setSelectedNodeIds(new Set([newNode.id]))
@@ -1322,6 +1513,55 @@ export default function DiagramEditor() {
                           </text>
                         )}
                       </>
+                    ) : node.shape === 'webview' ? (
+                      /* ── Web view placeholder (iframe rendered as overlay outside SVG) ── */
+                      <>
+                        {/* Border rect */}
+                        <rect
+                          x={node.x} y={node.y} width={node.w} height={node.h}
+                          fill={darkMode ? '#1e1e2e' : '#f0f4ff'}
+                          stroke={isSel ? colors.nodeStrokeSel : isConnSrc ? '#22d3ee' : '#6366f1'}
+                          strokeWidth={isSel ? sw + 1 : sw}
+                          strokeDasharray={isConnSrc ? '5 3' : undefined}
+                          rx={6}
+                        />
+                        {/* Connect target ring */}
+                        {isConnTarget && (
+                          <rect x={node.x} y={node.y} width={node.w} height={node.h}
+                            fill="none" stroke="#22d3ee" strokeWidth={2.5} opacity={0.7} rx={6}
+                            style={{ pointerEvents: 'none' }} />
+                        )}
+                        {/* Title bar */}
+                        <rect x={node.x} y={node.y} width={node.w} height={28}
+                          fill={isSel ? '#6366f1' : darkMode ? '#2d2d44' : '#e0e7ff'}
+                          rx={6} style={{ pointerEvents: 'none' }} />
+                        <rect x={node.x} y={node.y + 16} width={node.w} height={12}
+                          fill={isSel ? '#6366f1' : darkMode ? '#2d2d44' : '#e0e7ff'}
+                          style={{ pointerEvents: 'none' }} />
+                        {/* Globe icon */}
+                        <text x={node.x + 10} y={node.y + 18}
+                          fontSize={13} style={{ pointerEvents: 'none', userSelect: 'none' }}>🌐</text>
+                        {/* URL label in title bar */}
+                        <text x={node.x + 26} y={node.y + 18}
+                          textAnchor="start" dominantBaseline="middle"
+                          fontSize={10} fill={isSel ? 'white' : darkMode ? '#a5b4fc' : '#4338ca'}
+                          style={{ pointerEvents: 'none', userSelect: 'none' }}>
+                          {node.webviewUrl
+                            ? (node.webviewUrl.length > Math.floor(node.w / 7) - 4
+                                ? node.webviewUrl.slice(0, Math.floor(node.w / 7) - 4) + '…'
+                                : node.webviewUrl)
+                            : 'Double-click to enter URL'}
+                        </text>
+                        {/* Selection corner handles */}
+                        {isSel && [
+                          [node.x, node.y], [node.x + node.w, node.y],
+                          [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
+                        ].map(([hx, hy], i) => (
+                          <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
+                            rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
+                            style={{ pointerEvents: 'none' }} />
+                        ))}
+                      </>
                     ) : (
                       /* ── Flow / standard shape ── */
                       <>
@@ -1395,6 +1635,38 @@ export default function DiagramEditor() {
               )}
             </g>
           </svg>
+
+          {/* ── Webview iframe overlays ── */}
+          {diagram.nodes.filter(n => n.shape === 'webview').map(node => {
+            const isSel = selectedNodeIds.has(node.id)
+            const isEditing = editingWebviewUrl?.id === node.id
+            const commitUrl = (raw: string) => {
+              let url = raw.trim()
+              if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url
+              updateDiagram({ nodes: diagram.nodes.map(n => n.id === node.id ? { ...n, webviewUrl: url } : n) })
+              setEditingWebviewUrl(null)
+            }
+            return (
+              <WebviewNode
+                key={node.id}
+                node={node}
+                viewport={viewport}
+                isSel={isSel}
+                darkMode={darkMode}
+                isEditing={!!isEditing}
+                editingValue={editingWebviewUrl?.value ?? node.webviewUrl ?? ''}
+                onFocusUrl={() => { if (!editingWebviewUrl) setEditingWebviewUrl({ id: node.id, value: node.webviewUrl ?? '' }) }}
+                onChangeUrl={v => setEditingWebviewUrl({ id: node.id, value: v })}
+                onCommitUrl={commitUrl}
+                onCancelEdit={() => setEditingWebviewUrl(null)}
+                onReload={() => {
+                  const url = node.webviewUrl!
+                  updateDiagram({ nodes: diagram.nodes.map(n => n.id === node.id ? { ...n, webviewUrl: '' } : n) })
+                  setTimeout(() => updateDiagram({ nodes: diagram.nodes.map(n => n.id === node.id ? { ...n, webviewUrl: url } : n) }), 50)
+                }}
+              />
+            )
+          })}
 
           {/* Note content hover popup */}
           {notePopup && (() => {

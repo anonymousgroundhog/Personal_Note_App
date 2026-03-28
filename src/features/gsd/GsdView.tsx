@@ -1,18 +1,22 @@
-import React, { useState, useMemo, useRef } from 'react'
+import React, { useState, useMemo, useRef, useCallback } from 'react'
 import {
   Inbox, Zap, Clock, Cloud, CheckCircle2, FolderOpen,
   Plus, X, Calendar, User, AlertCircle, Edit2, Trash2,
   Flag, MoreHorizontal, Circle, CheckCircle, RefreshCw,
   BookOpen, ChevronDown, ChevronRight as ChevronRightIcon, BarChart2,
   ArrowRight, HelpCircle, Lightbulb, ListChecks, Target, CheckSquare,
+  ArrowLeft, FileText,
 } from 'lucide-react'
 import { useGsdStore } from './gsdStore'
 import type { GsdItem, GsdItemStatus, GsdPriority, GsdProject } from './gsdStore'
 import { useVaultStore } from '../../stores/vaultStore'
 import { parseGanttTasks } from '../gantt/ganttParser'
-import GanttView from '../gantt/GanttView'
+import GanttChart from '../gantt/GanttChart'
 import TasksView from '../tasks/TasksView'
 import CalendarView from '../calendar/CalendarView'
+import ProjectPlanner from './ProjectPlanner'
+import type { GanttTask, GanttProject as GanttProjectType } from '../../types/gantt'
+import { todayIso } from '../../lib/fs/pathUtils'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const STATUS_META: Record<GsdItemStatus, { label: string; icon: React.ReactNode; color: string }> = {
@@ -226,10 +230,13 @@ function ItemDrawer({ item, projects, contexts, onClose }: ItemDrawerProps) {
 }
 
 // ── Project card ─────────────────────────────────────────────────────────────
-function ProjectCard({ project, itemCount, onEdit }: { project: GsdProject; itemCount: number; onEdit: () => void }) {
+function ProjectCard({ project, itemCount, onEdit, onClick }: { project: GsdProject; itemCount: number; onEdit: () => void; onClick: () => void }) {
   const { updateProject } = useGsdStore()
   return (
-    <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 bg-white dark:bg-surface-800 group">
+    <div
+      className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-accent-400 dark:hover:border-accent-500 bg-white dark:bg-surface-800 group cursor-pointer transition-colors"
+      onClick={onClick}
+    >
       <div className="flex items-start gap-2">
         <div className="w-2.5 h-2.5 rounded-full mt-1 flex-shrink-0" style={{ background: project.color }} />
         <div className="flex-1 min-w-0">
@@ -256,10 +263,121 @@ function ProjectCard({ project, itemCount, onEdit }: { project: GsdProject; item
             </span>
           </div>
         </div>
-        <button onClick={onEdit} className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+        <button onClick={e => { e.stopPropagation(); onEdit() }} className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
           <Edit2 size={12} />
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── Project detail panel ─────────────────────────────────────────────────────
+function ProjectDetailPanel({ project, onBack, onEditProject }: {
+  project: GsdProject
+  onBack: () => void
+  onEditProject: () => void
+}) {
+  const { items, projects, updateItem } = useGsdStore()
+  const [editingItem, setEditingItem] = useState<GsdItem | null>(null)
+
+  const projectItems = useMemo(() => {
+    return items
+      .filter(i => i.projectId === project.id)
+      .sort((a, b) => {
+        if (a.status === 'done' && b.status !== 'done') return 1
+        if (a.status !== 'done' && b.status === 'done') return -1
+        const pOrder = { high: 0, medium: 1, low: 2 }
+        return pOrder[a.priority] - pOrder[b.priority]
+      })
+  }, [items, project.id])
+
+  const byStatus = useMemo(() => {
+    const map = new Map<GsdItemStatus, GsdItem[]>()
+    const order: GsdItemStatus[] = ['inbox', 'next', 'waiting', 'someday', 'done']
+    for (const s of order) map.set(s, [])
+    for (const item of projectItems) {
+      map.get(item.status)?.push(item)
+    }
+    return map
+  }, [projectItems])
+
+  const handleComplete = (item: GsdItem) => {
+    if (item.status === 'done') {
+      updateItem(item.id, { status: 'next', completedAt: null })
+    } else {
+      updateItem(item.id, { status: 'done', completedAt: Date.now() })
+    }
+  }
+
+  const STATUS_ORDER: GsdItemStatus[] = ['next', 'inbox', 'waiting', 'someday', 'done']
+
+  return (
+    <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 overflow-y-auto">
+        {/* Project header */}
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800">
+          <button onClick={onBack} className="flex items-center gap-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm">
+            <ArrowLeft size={14} /> Back
+          </button>
+          <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: project.color }} />
+          <span className="text-sm font-semibold text-gray-800 dark:text-gray-100">{project.name}</span>
+          {project.outcome && (
+            <span className="text-xs text-gray-400 truncate">→ {project.outcome}</span>
+          )}
+          <span className={`ml-auto text-xs px-2 py-0.5 rounded-full ${
+            project.status === 'active' ? 'bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400' :
+            project.status === 'on-hold' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600' :
+            project.status === 'someday' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-500' :
+            'bg-gray-100 dark:bg-gray-700 text-gray-500'
+          }`}>{project.status}</span>
+          <button onClick={onEditProject} className="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <Edit2 size={13} />
+          </button>
+        </div>
+
+        {/* Tasks by status */}
+        <div className="p-4">
+          {projectItems.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+              <FolderOpen size={36} className="opacity-20" />
+              <p className="text-sm">No tasks in this project yet.</p>
+              <p className="text-xs text-gray-400">Capture items in Inbox and assign them to this project.</p>
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {STATUS_ORDER.map(status => {
+                const group = byStatus.get(status) ?? []
+                if (group.length === 0) return null
+                return (
+                  <div key={status}>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 flex items-center gap-1.5">
+                      {STATUS_META[status].icon}
+                      {STATUS_META[status].label}
+                      <span className="ml-1 text-gray-300 dark:text-gray-600 font-normal">({group.length})</span>
+                    </h3>
+                    <div className="space-y-0.5">
+                      {group.map(item => (
+                        <ItemRow key={item.id} item={item} projects={projects}
+                          onEdit={() => setEditingItem(item)}
+                          onComplete={() => handleComplete(item)} />
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editingItem && (
+        <ItemDrawer
+          item={editingItem}
+          projects={projects}
+          contexts={useGsdStore.getState().contexts}
+          onClose={() => setEditingItem(null)}
+        />
+      )}
     </div>
   )
 }
@@ -274,8 +392,8 @@ function ItemRow({
   onComplete: () => void
 }) {
   const project = item.projectId ? projects.find(p => p.id === item.projectId) : null
-  const isOverdue = item.dueDate && new Date(item.dueDate) < new Date() && item.status !== 'done'
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD in local time
+  const isOverdue = item.dueDate && item.dueDate < today && item.status !== 'done'
   const isDueToday = item.dueDate === today
 
   return (
@@ -423,7 +541,7 @@ function ProjectEditor({ project, onClose }: { project?: GsdProject; onClose: ()
 }
 
 // ── Main GsdView ─────────────────────────────────────────────────────────────
-type GsdTab = 'inbox' | 'next' | 'waiting' | 'someday' | 'done' | 'projects' | 'review' | 'help' | 'gantt' | 'tasks' | 'calendar'
+type GsdTab = 'planner' | 'inbox' | 'next' | 'waiting' | 'someday' | 'done' | 'projects' | 'review' | 'help' | 'gantt' | 'tasks' | 'calendar'
 
 export default function GsdView() {
   const { items, projects, updateItem, syncFromGantt } = useGsdStore()
@@ -435,6 +553,18 @@ export default function GsdView() {
   const [filterContext, setFilterContext] = useState<string>('')
   const [showDone, setShowDone] = useState(false)
   const [syncResult, setSyncResult] = useState<{ newProjects: number; newItems: number } | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [ganttViewMode, setGanttViewMode] = useState<'Day' | 'Week' | 'Month' | 'Quarter Year'>('Week')
+  const [ganttCollapsedParents, setGanttCollapsedParents] = useState<Set<string>>(new Set())
+
+  const handleToggleGanttParent = useCallback((taskId: string) => {
+    setGanttCollapsedParents(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId)
+      else next.add(taskId)
+      return next
+    })
+  }, [])
 
   // Derive Gantt projects from vault
   const ganttProjects = useMemo(() => parseGanttTasks(index), [index])
@@ -443,6 +573,94 @@ export default function GsdView() {
     ganttProjects.filter(gp => !projects.some(p => p.ganttProjectId === gp.id || p.name === gp.name)),
     [ganttProjects, projects]
   )
+
+  // Merge vault-parsed gantt projects with GSD-native projects for the Gantt tab
+  const mergedGanttProjects = useMemo<GanttProjectType[]>(() => {
+    const today = todayIso()
+    const ninetyDays = new Date(Date.now() + 90 * 86400000).toISOString().slice(0, 10)
+
+    // GSD-native projects that are NOT already represented in vault gantt data
+    const gsdOnly = projects.filter(p =>
+      p.status !== 'completed' &&
+      !ganttProjects.some(gp => gp.id === p.ganttProjectId || gp.name === p.name)
+    )
+
+    const gsdGanttProjects: GanttProjectType[] = gsdOnly.map(p => {
+      const projItems = items.filter(i => i.projectId === p.id && i.status !== 'done')
+      const tasks: GanttTask[] = projItems.map((item, idx) => ({
+        id: item.id,
+        name: item.title,
+        start: item.dueDate
+          ? new Date(new Date(item.dueDate).getTime() - 7 * 86400000).toISOString().slice(0, 10)
+          : today,
+        end: item.dueDate ?? ninetyDays,
+        progress: item.status === 'done' ? 100 : 0,
+        project: p.name,
+      }))
+
+      // If no items with dates, create a placeholder spanning project horizon
+      if (tasks.length === 0) {
+        tasks.push({
+          id: `${p.id}-placeholder`,
+          name: '(no tasks yet)',
+          start: today,
+          end: ninetyDays,
+          progress: 0,
+          project: p.name,
+        })
+      }
+
+      return { id: p.id, name: p.name, tasks }
+    })
+
+    return [...ganttProjects, ...gsdGanttProjects]
+  }, [ganttProjects, projects, items])
+
+  // Merged gantt tasks for "all projects" view
+  const mergedGanttTasksRaw = useMemo<GanttTask[]>(() => {
+    return mergedGanttProjects.flatMap(p =>
+      p.tasks.map(t => ({ ...t, name: `[${p.name}] ${t.name}` }))
+    )
+  }, [mergedGanttProjects])
+
+  const ganttParentIds = useMemo(() => {
+    const s = new Set<string>()
+    mergedGanttTasksRaw.forEach(t => { if (t.parentTaskId) s.add(t.parentTaskId) })
+    return s
+  }, [mergedGanttTasksRaw])
+
+  const mergedGanttTasks = useMemo<GanttTask[]>(() =>
+    mergedGanttTasksRaw.filter(t => !t.parentTaskId || !ganttCollapsedParents.has(t.parentTaskId)),
+    [mergedGanttTasksRaw, ganttCollapsedParents]
+  )
+
+  const mergedProjectColors = useMemo(() => {
+    const palette = ['#8b5cf6','#3b82f6','#10b981','#f59e0b','#ef4444','#ec4899','#06b6d4','#84cc16','#f97316','#a855f7']
+    const map = new Map<string, string>()
+    mergedGanttProjects.forEach((p, i) => map.set(p.name, palette[i % palette.length]))
+    return map
+  }, [mergedGanttProjects])
+
+  // GSD items with due dates as calendar events
+  const gsdCalendarEvents = useMemo(() => {
+    return items
+      .filter(i => i.dueDate && i.status !== 'done')
+      .map(i => {
+        const proj = projects.find(p => p.id === i.projectId)
+        return {
+          id: `gsd-${i.id}`,
+          title: i.title,
+          start: i.dueDate!,
+          end: i.dueDate!,
+          backgroundColor: i.status === 'next' ? '#3b82f6' : '#8b5cf6',
+          borderColor: i.status === 'next' ? '#2563eb' : '#7c3aed',
+          extendedProps: {
+            calendarId: 'gsd-tasks',
+            source: 'local' as const,
+          },
+        }
+      })
+  }, [items, projects])
 
   const handleSyncGantt = () => {
     const result = syncFromGantt(ganttProjects)
@@ -462,8 +680,9 @@ export default function GsdView() {
     if (filterContext) list = list.filter(i => i.contexts.includes(filterContext))
     // Sort: overdue → high priority → medium → low → by title
     list = [...list].sort((a, b) => {
-      const aOverdue = a.dueDate && new Date(a.dueDate) < new Date() ? 0 : 1
-      const bOverdue = b.dueDate && new Date(b.dueDate) < new Date() ? 0 : 1
+      const todayStr = new Date().toLocaleDateString('en-CA')
+      const aOverdue = a.dueDate && a.dueDate < todayStr ? 0 : 1
+      const bOverdue = b.dueDate && b.dueDate < todayStr ? 0 : 1
       if (aOverdue !== bOverdue) return aOverdue - bOverdue
       const pOrder = { high: 0, medium: 1, low: 2 }
       if (pOrder[a.priority] !== pOrder[b.priority]) return pOrder[a.priority] - pOrder[b.priority]
@@ -495,6 +714,7 @@ export default function GsdView() {
   }
 
   const TABS: { id: GsdTab; label: string; icon: React.ReactNode; badge?: number }[] = [
+    { id: 'planner',  label: 'Plan',          icon: <FileText size={14} /> },
     { id: 'inbox',    label: 'Inbox',         icon: <Inbox size={14} />,        badge: inboxCount || undefined },
     { id: 'next',     label: 'Next Actions',  icon: <Zap size={14} /> },
     { id: 'waiting',  label: 'Waiting For',   icon: <Clock size={14} /> },
@@ -513,7 +733,8 @@ export default function GsdView() {
     const now = Date.now()
     const weekAgo = now - 7 * 86400000
     const completedThisWeek = items.filter(i => i.completedAt && i.completedAt >= weekAgo).length
-    const overdue = items.filter(i => i.dueDate && new Date(i.dueDate) < new Date() && i.status !== 'done').length
+    const todayStr = new Date().toLocaleDateString('en-CA')
+    const overdue = items.filter(i => i.dueDate && i.dueDate < todayStr && i.status !== 'done').length
     const noProject = items.filter(i => !i.projectId && i.status !== 'done' && i.status !== 'inbox').length
     const stale = items.filter(i => {
       if (i.status === 'done' || i.status === 'inbox') return false
@@ -616,10 +837,42 @@ export default function GsdView() {
       </div>
 
       {/* Main content */}
-      {activeTab === 'gantt' && <GanttView />}
+      {activeTab === 'planner' && <ProjectPlanner />}
+      {activeTab === 'gantt' && (
+        mergedGanttTasksRaw.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-gray-400">
+            <BarChart2 size={40} className="opacity-20" />
+            <p className="text-sm">No projects or tasks to display on the Gantt chart.</p>
+            <p className="text-xs text-gray-400">Add tasks with due dates to your projects, or create Gantt charts in markdown notes.</p>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex items-center gap-1 px-4 py-2 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+              {(['Day', 'Week', 'Month', 'Quarter Year'] as const).map(m => (
+                <button key={m} onClick={() => setGanttViewMode(m)}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    ganttViewMode === m
+                      ? 'bg-accent-500 text-white'
+                      : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700'
+                  }`}>{m}</button>
+              ))}
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <GanttChart
+                tasks={mergedGanttTasks}
+                viewMode={ganttViewMode}
+                projectColors={mergedProjectColors}
+                parentIds={ganttParentIds}
+                collapsedParents={ganttCollapsedParents}
+                onToggleParent={handleToggleGanttParent}
+              />
+            </div>
+          </div>
+        )
+      )}
       {activeTab === 'tasks' && <TasksView />}
-      {activeTab === 'calendar' && <CalendarView />}
-      <div className={`flex-1 flex overflow-hidden ${activeTab === 'gantt' || activeTab === 'tasks' || activeTab === 'calendar' ? 'hidden' : ''}`}>
+      {activeTab === 'calendar' && <CalendarView extraEvents={gsdCalendarEvents} />}
+      <div className={`flex-1 flex overflow-hidden ${activeTab === 'planner' || activeTab === 'gantt' || activeTab === 'tasks' || activeTab === 'calendar' ? 'hidden' : ''}`}>
         <div className="flex-1 overflow-y-auto">
           {/* ── Inbox ── */}
           {activeTab === 'inbox' && (
@@ -677,41 +930,54 @@ export default function GsdView() {
           )}
 
           {/* ── Projects ── */}
-          {activeTab === 'projects' && (
-            <div className="p-4">
-              {projects.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
-                  <FolderOpen size={40} className="opacity-20" />
-                  <p className="text-sm">No projects yet. Create one to group related actions.</p>
-                  <button onClick={() => setEditingProject('new')}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 text-sm">
-                    <Plus size={14} /> New Project
-                  </button>
-                </div>
-              ) : (
-                <>
-                  {(['active', 'on-hold', 'someday', 'completed'] as GsdProject['status'][]).map(status => {
-                    const ps = projects.filter(p => p.status === status)
-                    if (ps.length === 0) return null
-                    return (
-                      <div key={status} className="mb-6">
-                        <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-1">
-                          {status === 'active' ? 'Active Projects' : status === 'on-hold' ? 'On Hold' : status === 'someday' ? 'Someday/Maybe' : 'Completed'}
-                        </h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                          {ps.map(p => (
-                            <ProjectCard key={p.id} project={p}
-                              itemCount={projectItemCounts.get(p.id) ?? 0}
-                              onEdit={() => setEditingProject(p)} />
-                          ))}
+          {activeTab === 'projects' && (() => {
+            const selectedProject = selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null
+            if (selectedProject) {
+              return (
+                <ProjectDetailPanel
+                  project={selectedProject}
+                  onBack={() => setSelectedProjectId(null)}
+                  onEditProject={() => { setEditingProject(selectedProject); setSelectedProjectId(null) }}
+                />
+              )
+            }
+            return (
+              <div className="p-4">
+                {projects.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-16 gap-3 text-gray-400">
+                    <FolderOpen size={40} className="opacity-20" />
+                    <p className="text-sm">No projects yet. Create one to group related actions.</p>
+                    <button onClick={() => setEditingProject('new')}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 text-sm">
+                      <Plus size={14} /> New Project
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {(['active', 'on-hold', 'someday', 'completed'] as GsdProject['status'][]).map(status => {
+                      const ps = projects.filter(p => p.status === status)
+                      if (ps.length === 0) return null
+                      return (
+                        <div key={status} className="mb-6">
+                          <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2 px-1">
+                            {status === 'active' ? 'Active Projects' : status === 'on-hold' ? 'On Hold' : status === 'someday' ? 'Someday/Maybe' : 'Completed'}
+                          </h3>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {ps.map(p => (
+                              <ProjectCard key={p.id} project={p}
+                                itemCount={projectItemCounts.get(p.id) ?? 0}
+                                onEdit={() => setEditingProject(p)}
+                                onClick={() => setSelectedProjectId(p.id)} />
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
-                </>
-              )}
-            </div>
-          )}
+                      )
+                    })}
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Done ── */}
           {activeTab === 'done' && (
@@ -770,7 +1036,7 @@ export default function GsdView() {
                     <AlertCircle size={14} /> Overdue Items
                   </h3>
                   <div className="space-y-0.5">
-                    {items.filter(i => i.dueDate && new Date(i.dueDate) < new Date() && i.status !== 'done').map(item => (
+                    {items.filter(i => i.dueDate && i.dueDate < new Date().toLocaleDateString('en-CA') && i.status !== 'done').map(item => (
                       <ItemRow key={item.id} item={item} projects={projects}
                         onEdit={() => setEditingItem(item)}
                         onComplete={() => handleComplete(item)} />
