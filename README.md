@@ -1,30 +1,49 @@
 # Personal Note App
 
-A local-first markdown note-taking app with Obsidian-style editing, Gantt chart project tracking, full calendar view with Google/Outlook import, and built-in Android security analysis tools (Soot compiler and Jimple code analyzer).
+This Personal Note App is a comprehensive, all-in-one productivity and knowledge management workspace built for power users who want everything in one place. At its core it provides an Obsidian-style markdown note editor with wiki-links, tags, and a full file tree, but it extends far beyond note-taking. It includes a GSD (Getting Stuff Done) task manager with inbox, next actions, projects, and a built-in project planner that walks you through all eight stages of project management. For visual thinkers there is a Gantt chart editor, a calendar view, and a diagram builder. Specialized tools cover finance tracking, security utilities, a code editor, a web browser, communications, audio-to-text transcription, accessibility features, AI chat, and even a Minecraft reference tool. The newest addition is the Academia Related section — a purpose-built tracker for academics to log and organize their teaching, research, and service activities by academic year, complete with a dashboard, per-year summaries, vault sync, and PDF export. All data is persisted locally to the browser's localStorage and can be synced to an open vault folder on your filesystem, keeping your notes and structured data together in one place.
 
 ## Features
 
+### Core Notes & Knowledge Management
 - **Markdown Notes** — Full markdown editing with live preview, wiki-links `[[Note Name]]`, callouts `>[!info]`, GFM tables and task lists
 - **Tagging** — Tag notes via frontmatter; browse and filter by tag
 - **Command Palette** — `Ctrl+K` / `Cmd+K` to fuzzy-search all notes
-- **Gantt Charts** — Visual project timelines from notes with `type: gantt-task` frontmatter; single-project and all-projects views; create tasks from the UI
-- **Calendar** — Day, Week, Month views powered by FullCalendar; events sourced from note frontmatter `start:`/`end:`/`date:` fields
+- **Graph View** — Visual network of wiki-link connections between notes
+- **Tag autocomplete** — Suggests existing vault tags with keyboard navigation
+- **Git Sync** — Commit and push your vault to a remote git repository
+
+### Project & Task Management
+- **GSD (Getting Stuff Done)** — Inbox, Next Actions, Projects, Waiting For, Someday/Maybe, and Done tabs with a weekly review dashboard
+- **Project Planner** — Eight-step guided project management wizard (overview, stakeholders, scope, timeline, risks, resources, communication, next actions) with PDF export and automatic GSD sync
+- **Gantt Charts** — Visual project timelines from notes with `type: gantt-task` frontmatter; dependency arrows, subtask collapse, single-project and all-projects views
+- **Tasks View** — Aggregated task list combining vault Gantt tasks and GSD items with grouping, filtering, and inline editing
+
+### Calendar & Scheduling
+- **Calendar** — Day, Week, Month views powered by FullCalendar; events sourced from note frontmatter `start:`/`end:`/`date:` fields plus GSD items with due dates
 - **ICS Import** — Import `.ics` files exported from Google Calendar, Outlook, or any calendar app
 - **Google Calendar** — Connect via OAuth2 PKCE (requires setup — see below)
 - **Outlook Calendar** — Connect via Microsoft OAuth2 PKCE (requires setup — see below)
-- **Graph View** — Visual network of wiki-link connections between notes
-- **Tasks View** — Aggregated checklist of all `- [ ]` items across the vault
-- **Gantt subtask collapse** — Click the ▶/▼ toggle on any parent task to show/hide its subtasks
-- **Tag autocomplete** — Typing in the tag panel suggests existing vault tags with keyboard navigation
+
+### Academia
+- **Teaching, Research & Service** — Track academic activities by year and category (teaching, research, service) with a per-year dashboard, completion rings, drill-down filters, and vault sync that writes human-readable markdown notes
+
+### Specialized Tools
 - **AI Chat** — Connect to any OpenAI-compatible server (OpenWebUI, Ollama, LM Studio); select a model and query with note context injected
-- **GSD (Getting Stuff Done)** — Inbox, Next Actions, Projects, Waiting For, Someday/Maybe, Done tabs; imports from Gantt; weekly review dashboard
-- **Diagrams** — Mermaid-based diagram editor
-- **Soot Compiler** — Analyze Android APKs by compiling them to Jimple intermediate representation
-- **Jimple Analyzer** — Extract and analyze APIs, strings, classes, and libraries from compiled code
-- **Jimple Code Viewer** — View decompiled Jimple code for analyzed classes with syntax highlighting
+- **Finance Tracker** — Track income and expenses with categories, CSV import, and vault sync
+- **Diagrams** — Mermaid-based diagram editor with node types and export
+- **Code Editor** — Syntax-highlighted code editor with multi-language support
+- **Web Browser** — Embedded browser panel for quick reference
+- **Audio to Text** — Record audio and transcribe it directly into notes
+- **Communications** — Unified communications panel
+- **Security Tools** — CVSS calculator, pentest report builder, Soot compiler for Android APK analysis, and Jimple code viewer
+- **Accessibility** — Accessibility utilities and settings
+- **Minecraft** — Minecraft reference and utilities tool
+
+### App & Infrastructure
 - **LAN access** — Serve over HTTPS to other machines on your network (see below)
-- **Dark / Light mode**
-- **Local-first** — All data lives in your markdown files; no database, no server
+- **Dark / Light mode** — Respects system preference, toggleable
+- **Customizable sidebar** — Show/hide any nav section; collapsible ribbon groups
+- **Local-first** — All data lives in your vault folder and localStorage; no database, no cloud required
 
 ---
 
@@ -172,67 +191,49 @@ The setup script writes a `.env` file with paths for your machine. You can edit 
 
 This guide will walk you through installing everything you need to run the Personal Note App. Even if you're not technical, just follow the steps for your operating system.
 
+### Quick Start (Core App Only)
+
+If you only need notes, GSD, Gantt, Calendar, Finance, Academia, and the other general-purpose tools — and do **not** need Android security analysis — you only need Node.js:
+
+```bash
+# 1. Clone or download the repo
+git clone <repo-url>
+cd personal-note-app
+
+# 2. Install dependencies
+npm install
+
+# 3. Start the app
+npm run dev          # web version at https://localhost:5173
+# or
+npm run dev:electron # desktop app (requires Electron)
+```
+
+Then open `https://localhost:5173` in Chrome or Edge, click **Open Vault Folder**, and select a folder for your notes. That's it — the app is fully functional for all non-security features without any further setup.
+
+> **Browser recommendation:** Chrome or Edge provide the best experience via the File System Access API, which enables full read/write access to your vault. Firefox and Safari work in read-only fallback mode.
+
+---
+
+### Full Setup (Including Android Security Analysis)
+
+If you want to use the Soot compiler, Jimple analyzer, or APK analysis tools, you also need Java, apktool, and optionally Android Studio.
+
 ### What You're Installing (and Why)
 
 | Tool | Purpose | Required? |
 |---|---|---|
-| **Java** | Powers the Soot compiler for Android bytecode analysis | ✅ Yes |
 | **Node.js + npm** | Runs the Personal Note App | ✅ Yes |
-| **apktool** | Decompiles Android APK files for analysis | ✅ Yes |
-| **Android Studio** | Provides the Android SDK and development tools | ⚠️ Recommended |
-| **Android SDK Platforms** | Contains Android system files for different versions (needed for APK analysis) | ⚠️ Recommended |
-| **Android SDK Tools** | Command-line tools like `adb` for device communication and analysis | ⚠️ Recommended |
+| **Java** | Powers the Soot compiler for Android bytecode analysis | ⚠️ Security tools only |
+| **apktool** | Decompiles Android APK files for analysis | ⚠️ Security tools only |
+| **Android Studio** | Provides the Android SDK and development tools | ⚠️ Recommended for security tools |
+| **Android SDK Platforms** | Contains Android system files for different versions (needed for APK analysis) | ⚠️ Recommended for security tools |
+| **Android SDK Tools** | Command-line tools like `adb` for device communication and analysis | ⚠️ Recommended for security tools |
 
-**Minimum Setup:** Java, Node.js, apktool (basic analysis only)
-**Recommended Setup:** Everything above (full analysis features)
+**Minimum Setup:** Node.js only (all features except Android security analysis)
+**Full Setup:** Everything above (all features including Android analysis)
 
-### Step 1: Install Java
-
-The app includes Android analysis tools that require Java. Follow the instructions for your operating system:
-
-#### **Windows**
-1. Go to [oracle.com/java/technologies/downloads/](https://www.oracle.com/java/technologies/downloads/)
-2. Click **Java 21** (or the latest LTS version)
-3. Under "Windows", click the download link for **x64 Installer** (the `.exe` file)
-4. Run the downloaded `.exe` file and follow the installation wizard
-5. Click **Next** through all steps and complete the installation
-6. Open Command Prompt (press `Win + R`, type `cmd`, press Enter)
-7. Verify installation by typing: `java -version` and pressing Enter
-8. You should see something like `java version "21.0.x"`
-
-#### **macOS**
-1. Open **Terminal** (find it in Applications → Utilities, or press `Cmd + Space` and type "Terminal")
-2. If you have Homebrew installed, run:
-   ```bash
-   brew install openjdk@21
-   ```
-3. If you don't have Homebrew, install it first by pasting this into Terminal:
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```
-4. After Homebrew installs, run the Java command above
-5. Verify by typing: `java -version`
-
-#### **Linux (Ubuntu/Debian)**
-1. Open Terminal
-2. Run these commands:
-   ```bash
-   sudo apt update
-   sudo apt install openjdk-21-jdk
-   ```
-3. Verify by typing: `java -version`
-
-#### **Linux (Fedora/RHEL)**
-1. Open Terminal
-2. Run:
-   ```bash
-   sudo dnf install java-21-openjdk
-   ```
-3. Verify by typing: `java -version`
-
----
-
-### Step 2: Install Node.js
+### Step 1: Install Node.js
 
 The app requires **Node.js v20**. The recommended way to install and manage Node.js versions is with [nvm](https://github.com/nvm-sh/nvm) (Node Version Manager), which lets you switch versions easily and avoids permission issues.
 
@@ -303,7 +304,85 @@ nvm use  # reads .nvmrc automatically
 
 ---
 
-### Step 3: Install apktool (for Android APK analysis)
+### Step 2: Install and Run the App
+
+1. Clone or download the repository:
+   ```bash
+   git clone <repo-url>
+   cd personal-note-app
+   ```
+   Or download the ZIP from GitHub, extract it, and open a terminal in that folder.
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+   This downloads all required packages (takes a minute or two on first run).
+
+3. Start the app:
+   ```bash
+   npm run dev
+   ```
+   You should see:
+   ```
+   ➜  Local:   https://localhost:5173/
+   ```
+
+4. Open **Chrome** or **Edge** and go to `https://localhost:5173`. Your browser will show a certificate warning (expected for local HTTPS) — click **Advanced → Proceed** to continue.
+
+5. Click **Open Vault Folder** and select a folder on your computer to store your notes.
+
+That's it — the app is running. All notes, GSD tasks, finance data, and academia activities are stored locally in your vault folder and browser storage.
+
+---
+
+### Step 3: Install Java (Security Tools Only)
+
+The app includes Android analysis tools that require Java. Follow the instructions for your operating system:
+
+#### **Windows**
+1. Go to [oracle.com/java/technologies/downloads/](https://www.oracle.com/java/technologies/downloads/)
+2. Click **Java 21** (or the latest LTS version)
+3. Under "Windows", click the download link for **x64 Installer** (the `.exe` file)
+4. Run the downloaded `.exe` file and follow the installation wizard
+5. Click **Next** through all steps and complete the installation
+6. Open Command Prompt (press `Win + R`, type `cmd`, press Enter)
+7. Verify installation by typing: `java -version` and pressing Enter
+8. You should see something like `java version "21.0.x"`
+
+#### **macOS**
+1. Open **Terminal** (find it in Applications → Utilities, or press `Cmd + Space` and type "Terminal")
+2. If you have Homebrew installed, run:
+   ```bash
+   brew install openjdk@21
+   ```
+3. If you don't have Homebrew, install it first by pasting this into Terminal:
+   ```bash
+   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   ```
+4. After Homebrew installs, run the Java command above
+5. Verify by typing: `java -version`
+
+#### **Linux (Ubuntu/Debian)**
+1. Open Terminal
+2. Run these commands:
+   ```bash
+   sudo apt update
+   sudo apt install openjdk-21-jdk
+   ```
+3. Verify by typing: `java -version`
+
+#### **Linux (Fedora/RHEL)**
+1. Open Terminal
+2. Run:
+   ```bash
+   sudo dnf install java-21-openjdk
+   ```
+3. Verify by typing: `java -version`
+
+---
+
+### Step 4: Install apktool (Security Tools Only)
 
 apktool is used to decompile Android apps. Follow the instructions for your operating system:
 
@@ -350,7 +429,7 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 
 ---
 
-### Step 3.5: Install Android Studio (Optional but Recommended)
+### Step 5: Install Android Studio (Security Tools Only, Optional but Recommended)
 
 Android Studio provides the Android SDK and development tools needed for advanced Android analysis. If you only plan to use basic analysis features, you can skip this step. However, it's recommended for full functionality.
 
@@ -405,7 +484,7 @@ Android Studio provides the Android SDK and development tools needed for advance
 
 ---
 
-### Step 3.6: Install Android SDK Platforms and Tools
+### Step 6: Install Android SDK Platforms and Tools (Security Tools Only)
 
 Once Android Studio is installed, you need to install the Android SDK platforms and tools. Follow these steps:
 
@@ -444,24 +523,7 @@ You should see version information without errors.
 
 ---
 
-### Step 4: Download and Install the Personal Note App
-
-1. Go to the repository on GitHub and click the green **Code** button
-2. Click **Download ZIP** and save it to your computer
-3. Extract/unzip the folder to a location you'll remember (e.g., `~/Documents/personal-note-app` or `C:\Users\YourName\Documents\personal-note-app`)
-4. Open Terminal (Mac/Linux) or Command Prompt (Windows)
-5. Navigate to the app folder:
-   - **Windows**: `cd C:\Users\YourName\Documents\personal-note-app`
-   - **Mac/Linux**: `cd ~/Documents/personal-note-app`
-6. Run:
-   ```bash
-   npm install
-   ```
-   This will download and install all the dependencies (this takes a few minutes)
-
----
-
-### Step 5: Configure Android SDK Path (Optional but Recommended)
+### Step 7: Configure Android SDK Path (Security Tools Only, Optional but Recommended)
 
 The app works better when it knows where your Android SDK is installed. This step helps the analysis tools find Android components automatically.
 
@@ -503,35 +565,6 @@ The app works better when it knows where your Android SDK is installed. This ste
 6. Verify by typing: `echo $ANDROID_SDK_ROOT`
 
 ---
-
-### Step 6: Start the App
-
-You can run the app in two ways:
-
-#### **Option A: Desktop App (Recommended)**
-```bash
-npm run dev:electron
-```
-This launches the app as a native desktop application with hot-reload during development. The app window opens automatically.
-
-#### **Option B: Web Version**
-```bash
-npm run dev
-```
-This starts a local web server. You should see output like:
-```
-➜  Local:   https://localhost:5173/
-```
-Open your web browser and go to `https://localhost:5173`. Your browser may show a security warning about the certificate — this is normal for local development. Click **Advanced** or **Proceed** to continue.
-
----
-
-### Step 7: Create Your Vault
-
-1. Click **Open Vault Folder** and select a folder where you want to store your notes
-2. Start creating notes!
-
-**Done!** You can now use the Personal Note App.
 
 ---
 
@@ -603,29 +636,30 @@ This creates professional installers in the `dist-app/` folder. See [STANDALONE_
 
 ### Verify Your Setup
 
-After installation, verify everything is working by running these commands:
-
+**Core app (required):**
 ```bash
-java -version              # Should show Java 21 or higher
 node --version             # Should show v20 or higher
 npm --version              # Should show v10 or higher
+```
+
+**Security tools (optional):**
+```bash
+java -version              # Should show Java 21 or higher
 apktool --version          # Should show the apktool version
 adb --version              # Should show Android Debug Bridge version
 echo $ANDROID_SDK_ROOT     # Should show your SDK path (Mac/Linux)
 echo %ANDROID_SDK_ROOT%    # Should show your SDK path (Windows)
 ```
 
-All commands should return version numbers or paths without errors. If any fail, re-read the installation section for that tool.
-
 **Quick Checklist:**
-- [ ] Java installed and `java -version` works
-- [ ] Node.js installed and `node --version` works
+- [ ] Node.js installed and `node --version` shows v20+
 - [ ] npm installed and `npm --version` works
-- [ ] apktool installed and `apktool --version` works
-- [ ] Android Studio installed (optional but recommended)
-- [ ] Android SDK Platforms installed (Android 13, 14, 15)
-- [ ] Android SDK Tools installed (Build-Tools, Platform-Tools, Emulator)
-- [ ] ANDROID_SDK_ROOT environment variable set (optional but recommended)
+- [ ] App starts with `npm run dev` and opens at `https://localhost:5173`
+- [ ] Vault folder selected and notes load correctly
+- [ ] *(Security tools only)* Java installed and `java -version` works
+- [ ] *(Security tools only)* apktool installed and `apktool --version` works
+- [ ] *(Security tools only)* Android Studio installed with SDK Platforms (API 33, 34, 35)
+- [ ] *(Security tools only)* `ANDROID_SDK_ROOT` environment variable set
 
 ---
 
