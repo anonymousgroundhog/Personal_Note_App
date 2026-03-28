@@ -115,7 +115,8 @@
       "Bash(echo \"HOST_HOME=$HOME\")",
       "Read(//home/sean/Documents/Projects/Personal/Personal_Note_App/**)",
       "Bash(chmod:*)",
-      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''scripts'''',{}\\).keys\\(\\)\\)\\)\")"
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''scripts'''',{}\\).keys\\(\\)\\)\\)\")",
+      "Bash(ip route:*)"
     ]
   }
 }

@@ -3688,6 +3688,167 @@ sys.stdout.flush()
     return
   }
 
+  // ── Minecraft Docker management ───────────────────────────────────────────────
+  // POST /minecraft/docker/start   { name, version, software, ramGb, mcPort, rconPort, plugins[] }
+  // POST /minecraft/docker/stop    { name }
+  // POST /minecraft/docker/delete  { name }
+  // GET  /minecraft/docker/status?name=<container>
+
+  if (url.pathname.startsWith('/minecraft/docker/')) {
+    setCors(res)
+    if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return }
+
+    const action = url.pathname.replace('/minecraft/docker/', '')
+
+    // ── status ──────────────────────────────────────────────────────────────
+    if (req.method === 'GET' && action === 'status') {
+      const name = url.searchParams.get('name') || 'minecraft-server'
+      let status = 'not_found'
+      let details = {}
+
+      // Get host LAN IP so the client can display the correct connection address
+      let hostIp = '127.0.0.1'
+      try {
+        const ipResult = spawnSync('sh', ['-c',
+          "ip route get 1 2>/dev/null | awk '{print $7; exit}' || hostname -I | awk '{print $1}'"
+        ], { encoding: 'utf8' })
+        const parsed = ipResult.stdout.trim().split('\n')[0].trim()
+        if (parsed) hostIp = parsed
+      } catch {}
+
+      try {
+        const result = spawnSync('docker', ['inspect', '--format',
+          '{{.State.Status}}|{{.State.StartedAt}}',
+          name], { encoding: 'utf8' })
+        if (result.status === 0) {
+          const parts = result.stdout.trim().split('|')
+          status = parts[0] || 'unknown'
+          details = { startedAt: parts[1] || '', hostIp }
+        }
+      } catch {}
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ status, details }))
+      return
+    }
+
+    // Parse body for mutation endpoints
+    const chunks = []
+    req.on('data', d => chunks.push(d))
+    await new Promise(resolve => req.on('end', resolve))
+    let body = {}
+    try { body = JSON.parse(Buffer.concat(chunks).toString('utf8')) } catch {}
+
+    // ── stop ─────────────────────────────────────────────────────────────────
+    if (req.method === 'POST' && action === 'stop') {
+      const { name = 'minecraft-server' } = body
+      const result = spawnSync('docker', ['stop', name], { encoding: 'utf8' })
+      if (result.status !== 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: result.stderr.trim() || 'Failed to stop container' }))
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, message: `Container "${name}" stopped.` }))
+      return
+    }
+
+    // ── delete ────────────────────────────────────────────────────────────────
+    if (req.method === 'POST' && action === 'delete') {
+      const { name = 'minecraft-server' } = body
+      const result = spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' })
+      if (result.status !== 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: result.stderr.trim() || 'Failed to delete container' }))
+        return
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ ok: true, message: `Container "${name}" deleted.` }))
+      return
+    }
+
+    // ── start ─────────────────────────────────────────────────────────────────
+    if (req.method === 'POST' && action === 'start') {
+      const {
+        name = 'minecraft-server',
+        version = 'LATEST',
+        software = 'PAPER',
+        ramGb = 2,
+        mcPort = 25565,
+        rconPort = 25575,
+        dataDir = '',
+        plugins = [],
+      } = body
+
+      // Get host LAN IP to return in the response
+      let hostIp = '127.0.0.1'
+      try {
+        const ipResult = spawnSync('sh', ['-c',
+          "ip route get 1 2>/dev/null | awk '{print $7; exit}' || hostname -I | awk '{print $1}'"
+        ], { encoding: 'utf8' })
+        const parsed = ipResult.stdout.trim().split('\n')[0].trim()
+        if (parsed) hostIp = parsed
+      } catch {}
+
+      // Build docker run args using the itzg/minecraft-server image.
+      // Use --network host so the container binds directly to the host's
+      // network stack — avoids port-mapping issues when the app itself
+      // runs inside a Docker container.
+      const args = [
+        'run', '-d',
+        '--name', name,
+        '--restart', 'unless-stopped',
+        '--network', 'host',
+        '-e', 'EULA=TRUE',
+        '-e', `VERSION=${version}`,
+        '-e', `TYPE=${String(software).toUpperCase()}`,
+        '-e', `MEMORY=${ramGb}G`,
+        '-e', `SERVER_PORT=${mcPort}`,
+        '-e', `RCON_PORT=${rconPort}`,
+        '-e', 'ONLINE_MODE=TRUE',
+        '-e', 'DIFFICULTY=normal',
+        '-e', 'OPS=',
+      ]
+
+      // Volume: use named volume or host bind-mount
+      if (dataDir && dataDir.trim()) {
+        args.push('-v', `${dataDir.trim()}:/data`)
+      } else {
+        args.push('-v', `${name}-data:/data`)
+      }
+
+      // Pass plugin modrinth slugs as MODRINTH env var if any
+      if (plugins.length > 0) {
+        args.push('-e', `MODRINTH_PROJECTS=${plugins.join(',')}`)
+      }
+
+      args.push('itzg/minecraft-server')
+
+      // Check if container already exists and remove it first
+      spawnSync('docker', ['rm', '-f', name], { encoding: 'utf8' })
+
+      const result = spawnSync('docker', args, { encoding: 'utf8' })
+      if (result.status !== 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: result.stderr.trim() || 'Failed to start container' }))
+        return
+      }
+
+      const containerId = result.stdout.trim().slice(0, 12)
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        ok: true,
+        containerId,
+        hostIp,
+        message: `Container "${name}" started (ID: ${containerId}). Connect to ${hostIp}:${mcPort} — server may take 1-2 minutes to finish loading.`,
+      }))
+      return
+    }
+
+    res.writeHead(404, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unknown minecraft/docker action' }))
+    return
+  }
+
   res.writeHead(404)
   res.end('Not found')
 })
