@@ -2,3 +2,9 @@
 *.AppImage filter=lfs diff=lfs merge=lfs -text
 personal-note-app filter=lfs diff=lfs merge=lfs -text
 *.asar filter=lfs diff=lfs merge=lfs -text
+
+# Force shell scripts to LF line endings so they work inside Linux Docker containers
+# even when the repo is cloned on Windows
+*.sh text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf

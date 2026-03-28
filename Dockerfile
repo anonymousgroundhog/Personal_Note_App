@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     nmap \
+    dos2unix \
     && pip3 install --no-cache-dir scapy \
     && rm -rf /var/lib/apt/lists/*
 
@@ -34,8 +35,8 @@ RUN npm ci --ignore-scripts && \
 # Copy the rest of the source
 COPY . .
 
-# Make entrypoint executable
-RUN chmod +x entrypoint.sh
+# Strip Windows CR line endings (safety net for Windows clones) and make executable
+RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
 
 # Expose Vite dev server and git backend ports
 EXPOSE 5173 3001
