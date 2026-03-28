@@ -24,7 +24,14 @@ import { resolve, join } from 'path'
 import { tmpdir, homedir } from 'os'
 import { randomBytes } from 'crypto'
 import { WebSocketServer } from 'ws'
-import pty from 'node-pty'
+
+// node-pty is a native module — load it dynamically so a failed build doesn't crash the server
+let pty = null
+try {
+  pty = (await import('node-pty')).default
+} catch (e) {
+  console.warn('node-pty unavailable — terminal feature disabled:', e.message)
+}
 
 const DEFAULT_PORT = 3001
 const PORT = parseInt(process.env.GIT_SERVER_PORT || DEFAULT_PORT, 10)
@@ -3876,6 +3883,12 @@ wss.on('connection', (ws, req) => {
   const origin = req.headers.origin || ''
   if (!/^https?:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+)(:\d+)?$/.test(origin)) {
     ws.close(4003, 'Forbidden origin')
+    return
+  }
+
+  if (!pty) {
+    ws.send(JSON.stringify({ type: 'output', data: 'Terminal unavailable: node-pty failed to load.\r\n' }))
+    ws.close()
     return
   }
 

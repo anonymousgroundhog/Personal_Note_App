@@ -1,14 +1,14 @@
 FROM node:22-bullseye
 
-# Install git, Java (required by Soot/apktool), and apktool
+# Install git, Java (required by Soot/apktool), apktool, and build tools for native Node modules
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    build-essential \
     openjdk-17-jdk \
     apktool \
     python3 \
     python3-pip \
     nmap \
-    dos2unix \
     && pip3 install --no-cache-dir scapy \
     && rm -rf /var/lib/apt/lists/*
 
@@ -29,14 +29,16 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 # Install dependencies (skip electron since we're running web-only)
+# node-pty requires native compilation from source (build-essential installed above)
 RUN npm ci --ignore-scripts && \
-    npm rebuild node-pty --update-binary || true
+    npm rebuild node-pty || echo "WARNING: node-pty rebuild failed — terminal feature will be unavailable"
 
 # Copy the rest of the source
 COPY . .
 
 # Strip Windows CR line endings (safety net for Windows clones) and make executable
-RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+# sed -i 's/\r//' works on any POSIX system without extra packages
+RUN sed -i 's/\r//' entrypoint.sh && chmod +x entrypoint.sh
 
 # Expose Vite dev server and git backend ports
 EXPOSE 5173 3001

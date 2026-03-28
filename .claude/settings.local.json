@@ -116,7 +116,9 @@
       "Read(//home/sean/Documents/Projects/Personal/Personal_Note_App/**)",
       "Bash(chmod:*)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''scripts'''',{}\\).keys\\(\\)\\)\\)\")",
-      "Bash(ip route:*)"
+      "Bash(ip route:*)",
+      "Bash(dos2unix --version)",
+      "Bash(apt-cache show:*)"
     ]
   }
 }
