@@ -1,7 +1,9 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useRef } from 'react'
 import {
   Search, Globe, User, ShieldCheck, Loader2, AlertCircle,
   ChevronDown, ChevronRight, Copy, CheckCircle2, FileText, X, BookOpen,
+  Map, Maximize2, Minimize2, Navigation, Car, Train, Layers,
+  Settings, HelpCircle, Key, ExternalLink, Eye, EyeOff, CheckCheck,
 } from 'lucide-react'
 import { useVaultStore } from '../../stores/vaultStore'
 
@@ -9,7 +11,9 @@ const SERVER = 'http://localhost:3001'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type OsintTab = 'domain' | 'crtsh' | 'username' | 'dorking'
+type OsintTab = 'domain' | 'crtsh' | 'username' | 'dorking' | 'maps'
+
+type MapType = 'roadmap' | 'satellite' | 'terrain' | 'hybrid'
 
 interface GeoIP {
   ip: string
@@ -1089,6 +1093,425 @@ function GoogleDorkingTab() {
   )
 }
 
+// ── Google Maps Tab ────────────────────────────────────────────────────────────
+
+const MAPS_API_KEY_STORAGE = 'gmaps_embed_api_key'
+
+const MAP_TYPES: { id: MapType; label: string }[] = [
+  { id: 'roadmap',   label: 'Map' },
+  { id: 'satellite', label: 'Satellite' },
+  { id: 'terrain',   label: 'Terrain' },
+  { id: 'hybrid',    label: 'Hybrid' },
+]
+
+const SETUP_STEPS = [
+  {
+    step: 1,
+    title: 'Go to Google Cloud Console',
+    body: 'Open console.cloud.google.com and sign in with your Google account.',
+    link: 'https://console.cloud.google.com/',
+    linkLabel: 'Open Google Cloud Console',
+  },
+  {
+    step: 2,
+    title: 'Create or select a project',
+    body: 'Click the project dropdown at the top of the page. Either select an existing project or click "New Project", give it a name (e.g. "Maps Embed"), and click Create.',
+  },
+  {
+    step: 3,
+    title: 'Enable the Maps Embed API',
+    body: 'In the left sidebar go to APIs & Services → Library. Search for "Maps Embed API" and click Enable.',
+    link: 'https://console.cloud.google.com/apis/library/maps-embed-backend.googleapis.com',
+    linkLabel: 'Enable Maps Embed API',
+  },
+  {
+    step: 4,
+    title: 'Create an API key',
+    body: 'Go to APIs & Services → Credentials. Click "+ Create Credentials" → "API key". Your new key will be shown — copy it.',
+    link: 'https://console.cloud.google.com/apis/credentials',
+    linkLabel: 'Open Credentials page',
+  },
+  {
+    step: 5,
+    title: '(Recommended) Restrict the key',
+    body: 'Click on the key to edit it. Under "Application restrictions" choose "HTTP referrers" and add your app\'s origin (e.g. localhost:5173). Under "API restrictions" select "Restrict key" and pick "Maps Embed API". Click Save.',
+  },
+  {
+    step: 6,
+    title: 'Paste your key here',
+    body: 'Copy the API key and paste it into the field in this app. It will be saved in your browser\'s local storage and never sent anywhere except Google\'s embed endpoint.',
+  },
+]
+
+function MapsHelpModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-surface-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-lg flex flex-col max-h-[90vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <HelpCircle size={18} className="text-emerald-500" />
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Google Maps API Setup</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Intro */}
+        <div className="px-5 pt-4 pb-2 flex-shrink-0">
+          <div className="flex items-start gap-3 p-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/40 rounded-lg">
+            <Key size={16} className="text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" />
+            <p className="text-xs text-emerald-700 dark:text-emerald-300 leading-relaxed">
+              The Google Maps Embed API requires a free API key. Google provides a generous free tier — the Embed API has <strong>no charge</strong> for standard usage. You only pay if you exceed very high volume thresholds or use paid APIs like Directions or Places.
+            </p>
+          </div>
+        </div>
+
+        {/* Steps */}
+        <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-3">
+          {SETUP_STEPS.map(({ step, title, body, link, linkLabel }) => (
+            <div key={step} className="flex gap-3">
+              <div className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-500 text-white text-xs font-bold flex items-center justify-center mt-0.5">
+                {step}
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-100 mb-0.5">{title}</p>
+                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">{body}</p>
+                {link && (
+                  <a
+                    href={link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 mt-1.5 text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+                  >
+                    <ExternalLink size={11} />
+                    {linkLabel}
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Pricing note */}
+          <div className="mt-2 p-3 bg-gray-50 dark:bg-surface-700 border border-gray-200 dark:border-gray-600 rounded-lg">
+            <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 mb-1">Pricing &amp; quotas</p>
+            <ul className="text-xs text-gray-500 dark:text-gray-400 space-y-1 leading-relaxed">
+              <li>• Maps Embed API: <strong className="text-gray-700 dark:text-gray-300">free, unlimited</strong> for standard map loads</li>
+              <li>• New accounts receive $200/month in free credits</li>
+              <li>• A billing account is required but won't be charged under normal embed usage</li>
+              <li>• Set a budget alert in Cloud Console to be safe</li>
+            </ul>
+            <a
+              href="https://mapsplatform.google.com/pricing/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 mt-2 text-xs text-emerald-600 dark:text-emerald-400 hover:underline font-medium"
+            >
+              <ExternalLink size={11} />
+              View full pricing details
+            </a>
+          </div>
+        </div>
+
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700 flex-shrink-0">
+          <button
+            onClick={onClose}
+            className="w-full py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-medium transition-colors"
+          >
+            Got it
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MapsApiKeyPanel({ onSave, onCancel, currentKey }: { onSave: (key: string) => void; onCancel: () => void; currentKey: string }) {
+  const [input, setInput] = useState(currentKey)
+  const [showKey, setShowKey] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+
+  return (
+    <>
+      <div className="flex flex-col items-center justify-center h-full p-8 bg-white dark:bg-surface-900">
+        <div className="w-full max-w-md">
+          <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-200 dark:border-emerald-800/40 mx-auto mb-4">
+            <Key size={26} className="text-emerald-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-gray-100 text-center mb-1">Google Maps API Key</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-6">
+            Enter your Google Maps Embed API key to load maps. Your key is stored only in your browser.
+          </p>
+
+          {/* Key input */}
+          <div className="flex items-center gap-2 bg-gray-50 dark:bg-surface-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2.5 mb-3">
+            <Key size={14} className="text-gray-400 shrink-0" />
+            <input
+              type={showKey ? 'text' : 'password'}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && input.trim() && onSave(input.trim())}
+              placeholder="AIzaSy…"
+              className="flex-1 text-sm bg-transparent outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400 font-mono"
+              autoFocus
+            />
+            <button
+              onClick={() => setShowKey(v => !v)}
+              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
+              title={showKey ? 'Hide key' : 'Show key'}
+            >
+              {showKey ? <EyeOff size={14} /> : <Eye size={14} />}
+            </button>
+          </div>
+
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => input.trim() && onSave(input.trim())}
+              disabled={!input.trim()}
+              className="flex-1 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+            >
+              Save &amp; Load Map
+            </button>
+            {currentKey && (
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-surface-700 transition-colors"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          <button
+            onClick={() => setShowHelp(true)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-xs text-gray-500 dark:text-gray-400 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+          >
+            <HelpCircle size={13} />
+            How do I get an API key?
+          </button>
+        </div>
+      </div>
+      {showHelp && <MapsHelpModal onClose={() => setShowHelp(false)} />}
+    </>
+  )
+}
+
+function GoogleMapsTab() {
+  const [apiKey, setApiKey] = useState<string>(() => localStorage.getItem(MAPS_API_KEY_STORAGE) ?? '')
+  const [showKeyPanel, setShowKeyPanel] = useState(false)
+  const [showHelp, setShowHelp] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
+  const [query, setQuery] = useState('')
+  const [mapType, setMapType] = useState<MapType>('roadmap')
+  const [fullscreen, setFullscreen] = useState(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  const saveKey = (key: string) => {
+    localStorage.setItem(MAPS_API_KEY_STORAGE, key)
+    setApiKey(key)
+    setShowKeyPanel(false)
+  }
+
+  const clearKey = () => {
+    localStorage.removeItem(MAPS_API_KEY_STORAGE)
+    setApiKey('')
+    setShowKeyPanel(false)
+  }
+
+  const handleSearch = () => {
+    const q = searchInput.trim()
+    if (q) setQuery(q)
+  }
+
+  const buildEmbedUrl = () => {
+    const base = 'https://www.google.com/maps/embed/v1/place'
+    const params = new URLSearchParams({
+      key: apiKey,
+      q: query || 'World',
+      maptype: mapType,
+      zoom: query ? '13' : '2',
+    })
+    return `${base}?${params.toString()}`
+  }
+
+  const openInGoogleMaps = (mode?: 'directions' | 'streetview' | 'transit') => {
+    let url = ''
+    if (mode === 'directions') {
+      url = `https://www.google.com/maps/dir/?api=1${query ? `&destination=${encodeURIComponent(query)}` : ''}`
+    } else if (mode === 'streetview') {
+      url = `https://www.google.com/maps/@?api=1&map_action=pano${query ? `&viewpoint=${encodeURIComponent(query)}` : ''}`
+    } else if (mode === 'transit') {
+      url = `https://www.google.com/maps/dir/?api=1&travelmode=transit${query ? `&destination=${encodeURIComponent(query)}` : ''}`
+    } else {
+      url = `https://www.google.com/maps/search/${query ? encodeURIComponent(query) : ''}?t=${
+        mapType === 'satellite' ? 'k' : mapType === 'terrain' ? 'p' : mapType === 'hybrid' ? 'h' : 'm'
+      }`
+    }
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  // Show key setup if no key saved
+  if (!apiKey || showKeyPanel) {
+    return (
+      <MapsApiKeyPanel
+        currentKey={apiKey}
+        onSave={saveKey}
+        onCancel={() => setShowKeyPanel(false)}
+      />
+    )
+  }
+
+  return (
+    <div className={`flex flex-col ${fullscreen ? 'fixed inset-0 z-50 bg-white dark:bg-surface-900' : 'h-full'}`}>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-2 p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex-shrink-0">
+        {/* Search */}
+        <div className="flex flex-1 min-w-48 items-center gap-1 bg-white dark:bg-surface-700 border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-1.5">
+          <Search size={14} className="text-gray-400 shrink-0" />
+          <input
+            type="text"
+            value={searchInput}
+            onChange={e => setSearchInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+            placeholder="Search location, address, or coordinates…"
+            className="flex-1 text-sm bg-transparent outline-none text-gray-800 dark:text-gray-100 placeholder-gray-400"
+          />
+          {searchInput && (
+            <button onClick={() => { setSearchInput(''); setQuery('') }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+              <X size={13} />
+            </button>
+          )}
+        </div>
+        <button
+          onClick={handleSearch}
+          className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-medium rounded-lg transition-colors"
+        >
+          Search
+        </button>
+
+        {/* Map type */}
+        <div className="flex items-center gap-0.5 bg-white dark:bg-surface-700 border border-gray-200 dark:border-gray-600 rounded-lg p-0.5">
+          <Layers size={13} className="text-gray-400 mx-1.5" />
+          {MAP_TYPES.map(mt => (
+            <button
+              key={mt.id}
+              onClick={() => setMapType(mt.id)}
+              className={`px-2.5 py-1 text-xs font-medium rounded transition-colors ${
+                mapType === mt.id
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600'
+              }`}
+            >
+              {mt.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => openInGoogleMaps('directions')}
+            title="Open Directions in Google Maps"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <Car size={13} />
+            Directions
+          </button>
+          <button
+            onClick={() => openInGoogleMaps('streetview')}
+            title="Open Street View in Google Maps"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <Navigation size={13} />
+            Street View
+          </button>
+          <button
+            onClick={() => openInGoogleMaps('transit')}
+            title="Open Transit directions in Google Maps"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <Train size={13} />
+            Transit
+          </button>
+          <button
+            onClick={() => openInGoogleMaps()}
+            title="Open full Google Maps in browser"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <Globe size={13} />
+            Open in Maps
+          </button>
+        </div>
+
+        {/* Right-side controls */}
+        <div className="flex items-center gap-1 ml-auto">
+          <button
+            onClick={() => setShowHelp(true)}
+            title="API setup help"
+            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <HelpCircle size={14} />
+          </button>
+          <button
+            onClick={() => setShowKeyPanel(true)}
+            title="API key settings"
+            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            <Settings size={14} />
+          </button>
+          <button
+            onClick={() => setFullscreen(f => !f)}
+            title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            className="p-1.5 rounded-lg border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700 transition-colors"
+          >
+            {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        </div>
+      </div>
+
+      {/* Map iframe */}
+      <div className="flex-1 relative min-h-0">
+        <iframe
+          ref={iframeRef}
+          src={buildEmbedUrl()}
+          className="w-full h-full border-0"
+          allowFullScreen
+          loading="lazy"
+          referrerPolicy="no-referrer-when-downgrade"
+          title="Google Maps"
+        />
+        {/* Overlay hint when no search yet */}
+        {!query && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+            <div className="bg-white/90 dark:bg-surface-800/90 backdrop-blur-sm rounded-xl px-6 py-4 shadow-lg border border-gray-200 dark:border-gray-700 text-center max-w-xs">
+              <Map size={28} className="text-emerald-500 mx-auto mb-2" />
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Search a location above</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Enter an address, place name, or coordinates to explore the map</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Key status footer */}
+      <div className="px-4 py-1.5 bg-gray-50 dark:bg-surface-800 border-t border-gray-200 dark:border-gray-700 flex items-center gap-2 flex-shrink-0">
+        <CheckCheck size={12} className="text-emerald-500 shrink-0" />
+        <p className="text-[10px] text-gray-500 dark:text-gray-400 flex-1">
+          API key active — stored in browser local storage only.
+        </p>
+        <button
+          onClick={clearKey}
+          className="text-[10px] text-red-400 hover:text-red-500 transition-colors"
+        >
+          Remove key
+        </button>
+      </div>
+
+      {showHelp && <MapsHelpModal onClose={() => setShowHelp(false)} />}
+    </div>
+  )
+}
+
 // ── Main view ──────────────────────────────────────────────────────────────────
 
 const TABS: { id: OsintTab; label: string; icon: React.ReactNode }[] = [
@@ -1096,6 +1519,7 @@ const TABS: { id: OsintTab; label: string; icon: React.ReactNode }[] = [
   { id: 'crtsh',    label: 'Subdomains',     icon: <ShieldCheck size={14} /> },
   { id: 'username', label: 'Username Search', icon: <User size={14} /> },
   { id: 'dorking',  label: 'Google Dorking', icon: <Search size={14} /> },
+  { id: 'maps',     label: 'Maps',           icon: <Map size={14} /> },
 ]
 
 export default function OsintView() {
@@ -1129,12 +1553,18 @@ export default function OsintView() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-6 max-w-3xl w-full mx-auto">
-        {activeTab === 'domain'   && <DomainTab />}
-        {activeTab === 'crtsh'    && <CrtshTab />}
-        {activeTab === 'username' && <UsernameTab />}
-        {activeTab === 'dorking'  && <GoogleDorkingTab />}
-      </div>
+      {activeTab === 'maps' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <GoogleMapsTab />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto p-6 max-w-3xl w-full mx-auto">
+          {activeTab === 'domain'   && <DomainTab />}
+          {activeTab === 'crtsh'    && <CrtshTab />}
+          {activeTab === 'username' && <UsernameTab />}
+          {activeTab === 'dorking'  && <GoogleDorkingTab />}
+        </div>
+      )}
     </div>
   )
 }

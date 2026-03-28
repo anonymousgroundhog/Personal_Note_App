@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -177,31 +177,94 @@ function NoteMethodsPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
-const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?: string }[] = [
-  { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes' },
-  { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags' },
-  { view: 'sync',     icon: <Github size={18} />,       label: 'Sync' },
-  { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams', section: 'Tools' },
-  { view: 'code',     icon: <Code2 size={18} />,        label: 'Code' },
-  { view: 'web',      icon: <Globe size={18} />,         label: 'Web' },
-  { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD' },
-  { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat' },
-  { view: 'audio-to-text', icon: <Mic size={18} />,      label: 'Audio to Text' },
-  { view: 'finance',  icon: <DollarSign size={18} />,     label: 'Finance' },
-  { view: 'security', icon: <Shield size={18} />,         label: 'Security' },
-  { view: 'minecraft', icon: <Pickaxe size={18} />,       label: 'Minecraft' },
+const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section: string }[] = [
+  { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes',           section: 'Core' },
+  { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags',            section: 'Core' },
+  { view: 'sync',     icon: <Github size={18} />,       label: 'Sync',            section: 'Core' },
+  { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams',        section: 'Tools' },
+  { view: 'code',     icon: <Code2 size={18} />,        label: 'Code',            section: 'Tools' },
+  { view: 'web',      icon: <Globe size={18} />,         label: 'Web',             section: 'Tools' },
+  { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD',             section: 'Tools' },
+  { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat',         section: 'Tools' },
+  { view: 'audio-to-text', icon: <Mic size={18} />,     label: 'Audio to Text',   section: 'Tools' },
+  { view: 'finance',  icon: <DollarSign size={18} />,   label: 'Finance',         section: 'Tools' },
+  { view: 'security', icon: <Shield size={18} />,       label: 'Security',        section: 'Tools' },
+  { view: 'minecraft', icon: <Pickaxe size={18} />,     label: 'Minecraft',       section: 'Tools' },
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
-  { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility', section: 'Accessibility' },
-  { view: 'help', icon: <HelpCircle size={18} />, label: 'Help', section: 'Help' },
+  { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility',  section: 'Accessibility' },
+  { view: 'help', icon: <HelpCircle size={18} />,       label: 'Help',            section: 'Help' },
 ]
 
+// Sections in display order; 'Core' has no visible header by default
+const NAV_SECTIONS = ['Core', 'Tools', 'Communications', 'Accessibility', 'Help'] as const
+
+function CustomizeSidebarPanel({ onClose }: { onClose: () => void }) {
+  const { hiddenNavItems, toggleNavItemVisibility } = useUiStore()
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+      <div className="bg-white dark:bg-surface-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 w-full max-w-sm flex flex-col">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-700">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={18} className="text-accent-500" />
+            <h2 className="text-base font-semibold text-gray-800 dark:text-gray-100">Customize Sidebar</h2>
+          </div>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+            <X size={16} />
+          </button>
+        </div>
+        <p className="px-5 pt-3 pb-1 text-xs text-gray-500 dark:text-gray-400">Toggle which items appear in the sidebar navigation. Hidden items can always be re-enabled here.</p>
+        <div className="flex-1 overflow-y-auto p-3 space-y-1">
+          {NAV_ITEMS.map(({ view, icon, label }) => {
+            const isHidden = hiddenNavItems.includes(view)
+            const isProtected = view === 'notes'
+            return (
+              <button
+                key={view}
+                onClick={() => !isProtected && toggleNavItemVisibility(view)}
+                disabled={isProtected}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors ${
+                  isProtected
+                    ? 'opacity-50 cursor-not-allowed text-gray-400 dark:text-gray-500'
+                    : isHidden
+                    ? 'text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-surface-700'
+                    : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-surface-700'
+                }`}
+              >
+                <span className={isHidden ? 'opacity-40' : ''}>{icon}</span>
+                <span className={`flex-1 text-left ${isHidden ? 'line-through opacity-50' : ''}`}>{label}</span>
+                {isProtected ? (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500">always visible</span>
+                ) : isHidden ? (
+                  <EyeOff size={15} className="text-gray-400" />
+                ) : (
+                  <Eye size={15} className="text-accent-500" />
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <div className="px-5 py-3 border-t border-gray-200 dark:border-gray-700">
+          <button
+            onClick={onClose}
+            className="w-full py-2 rounded-lg bg-accent-500 hover:bg-accent-600 text-white text-sm font-medium transition-colors"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Sidebar() {
-  const { activeView, setActiveView, sidebarOpen, toggleSidebar, darkMode, toggleDarkMode, setCommandPaletteOpen } = useUiStore()
+  const { activeView, setActiveView, sidebarOpen, toggleSidebar, darkMode, toggleDarkMode, setCommandPaletteOpen, hiddenNavItems, collapsedSections, toggleSection } = useUiStore()
   const { rootHandle, fallbackMode, fallbackName, openVault, openVaultFallback, fileTree } = useVaultStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [showMeetingModal, setShowMeetingModal] = useState(false)
   const [showMusicPlayer, setShowMusicPlayer] = useState(false)
   const [showNoteMethods, setShowNoteMethods] = useState(false)
+  const [showCustomize, setShowCustomize] = useState(false)
   const { isPlaying, title, artist, sendCommand } = useMusicStore()
   const hasTrack = !!(title)
 
@@ -301,31 +364,62 @@ export default function Sidebar() {
 
       {/* Nav */}
       <nav className="p-2 space-y-0.5">
-        {NAV_ITEMS.map(({ view, icon, label, section }, idx) => (
-          <React.Fragment key={view}>
-            {section && (
-              <div className={`${idx > 0 ? 'mt-2 pt-2 border-t border-gray-200 dark:border-gray-700' : ''}`}>
-                {sidebarOpen && (
-                  <p className="px-2 pb-0.5 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
-                    {section}
-                  </p>
-                )}
-              </div>
-            )}
-            <button
-              onClick={() => setActiveView(view)}
-              className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
-                activeView === view
-                  ? 'bg-accent-500 text-white'
-                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
-              }`}
-              title={!sidebarOpen ? label : undefined}
-            >
-              {icon}
-              {sidebarOpen && label}
-            </button>
-          </React.Fragment>
-        ))}
+        {NAV_SECTIONS.map((section, sIdx) => {
+          const sectionItems = NAV_ITEMS.filter(item => item.section === section && !hiddenNavItems.includes(item.view))
+          if (sectionItems.length === 0) return null
+          const isCollapsed = collapsedSections.includes(section)
+          return (
+            <React.Fragment key={section}>
+              {/* Section header */}
+              {sIdx > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                  {sidebarOpen ? (
+                    <button
+                      onClick={() => toggleSection(section)}
+                      className="w-full flex items-center gap-1 px-2 pb-0.5 group"
+                      title={isCollapsed ? `Expand ${section}` : `Collapse ${section}`}
+                    >
+                      <p className="flex-1 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors">
+                        {section}
+                      </p>
+                      <ChevronRight
+                        size={11}
+                        className={`text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                      />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => toggleSection(section)}
+                      className="w-full flex items-center justify-center py-0.5 group"
+                      title={isCollapsed ? `Expand ${section}` : `Collapse ${section}`}
+                    >
+                      <ChevronRight
+                        size={11}
+                        className={`text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                      />
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* Section items */}
+              {!isCollapsed && sectionItems.map(({ view, icon, label }) => (
+                <button
+                  key={view}
+                  onClick={() => setActiveView(view)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
+                    activeView === view
+                      ? 'bg-accent-500 text-white'
+                      : 'text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  }`}
+                  title={!sidebarOpen ? label : undefined}
+                >
+                  {icon}
+                  {sidebarOpen && label}
+                </button>
+              ))}
+            </React.Fragment>
+          )
+        })}
       </nav>
 
       {/* File tree */}
@@ -397,6 +491,14 @@ export default function Sidebar() {
           {sidebarOpen && 'Note Methods'}
         </button>
         <button
+          onClick={() => setShowCustomize(true)}
+          className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 mb-1 transition-colors text-gray-600 dark:text-gray-400"
+          title="Customize sidebar"
+        >
+          <SlidersHorizontal size={16} />
+          {sidebarOpen && 'Customize'}
+        </button>
+        <button
           onClick={toggleDarkMode}
           className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
           title="Toggle dark mode"
@@ -421,6 +523,11 @@ export default function Sidebar() {
       {/* Note-taking methods panel — floating overlay */}
       {showNoteMethods && (
         <NoteMethodsPanel onClose={() => setShowNoteMethods(false)} />
+      )}
+
+      {/* Customize sidebar panel */}
+      {showCustomize && (
+        <CustomizeSidebarPanel onClose={() => setShowCustomize(false)} />
       )}
     </div>
   )

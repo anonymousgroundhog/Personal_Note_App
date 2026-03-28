@@ -9,6 +9,8 @@ interface UiState {
   sidebarOpen: boolean
   darkMode: boolean
   commandPaletteOpen: boolean
+  hiddenNavItems: AppView[]
+  collapsedSections: string[]
   setActiveView: (view: AppView) => void
   openTab: (path: string) => void
   closeTab: (path: string) => void
@@ -17,8 +19,28 @@ interface UiState {
   toggleSidebar: () => void
   toggleDarkMode: () => void
   setCommandPaletteOpen: (open: boolean) => void
+  toggleNavItemVisibility: (view: AppView) => void
+  toggleSection: (section: string) => void
   // Getter for backward compat
   activeNotePath: string | null
+}
+
+function loadCollapsedSections(): string[] {
+  try {
+    const stored = localStorage.getItem('collapsedSections')
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
+function loadHiddenNavItems(): AppView[] {
+  try {
+    const stored = localStorage.getItem('hiddenNavItems')
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
 }
 
 export const useUiStore = create<UiState>((set, get) => ({
@@ -28,6 +50,8 @@ export const useUiStore = create<UiState>((set, get) => ({
   sidebarOpen: true,
   darkMode: window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false,
   commandPaletteOpen: false,
+  hiddenNavItems: loadHiddenNavItems(),
+  collapsedSections: loadCollapsedSections(),
 
   get activeNotePath() {
     return get().activeTabPath
@@ -89,6 +113,24 @@ export const useUiStore = create<UiState>((set, get) => ({
       openTabs: [...state.openTabs, path],
       activeTabPath: path
     }
+  }),
+
+  toggleNavItemVisibility: (view) => set((s) => {
+    const next = s.hiddenNavItems.includes(view)
+      ? s.hiddenNavItems.filter(v => v !== view)
+      : [...s.hiddenNavItems, view]
+    localStorage.setItem('hiddenNavItems', JSON.stringify(next))
+    // If the active view is being hidden, switch to notes
+    const newActiveView = next.includes(s.activeView) && s.activeView !== 'notes' ? 'notes' : s.activeView
+    return { hiddenNavItems: next, activeView: newActiveView }
+  }),
+
+  toggleSection: (section) => set((s) => {
+    const next = s.collapsedSections.includes(section)
+      ? s.collapsedSections.filter(sec => sec !== section)
+      : [...s.collapsedSections, section]
+    localStorage.setItem('collapsedSections', JSON.stringify(next))
+    return { collapsedSections: next }
   }),
 
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
