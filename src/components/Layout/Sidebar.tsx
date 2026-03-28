@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -186,8 +186,10 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section?
   { view: 'web',      icon: <Globe size={18} />,         label: 'Web' },
   { view: 'gsd',      icon: <Zap size={18} />,          label: 'GSD' },
   { view: 'ai',       icon: <Bot size={18} />,          label: 'AI Chat' },
+  { view: 'audio-to-text', icon: <Mic size={18} />,      label: 'Audio to Text' },
   { view: 'finance',  icon: <DollarSign size={18} />,     label: 'Finance' },
   { view: 'security', icon: <Shield size={18} />,         label: 'Security' },
+  { view: 'minecraft', icon: <Pickaxe size={18} />,       label: 'Minecraft' },
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
   { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility', section: 'Accessibility' },
   { view: 'help', icon: <HelpCircle size={18} />, label: 'Help', section: 'Help' },

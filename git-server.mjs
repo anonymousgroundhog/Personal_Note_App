@@ -782,6 +782,202 @@ const server = createServer(async (req, res) => {
     return
   }
 
+  // POST /ai/transcribe — proxy audio file to OpenAI-compatible /v1/audio/transcriptions (Whisper)
+  // Expects multipart/form-data with fields: file (audio), serverUrl, apiKey, model (optional), language (optional)
+  if (req.method === 'POST' && url.pathname === '/ai/transcribe') {
+    setCors(res)
+    const contentType = req.headers['content-type'] || ''
+    const boundaryMatch = contentType.match(/boundary=(.+)$/)
+    if (!boundaryMatch) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Expected multipart/form-data' }))
+      return
+    }
+    const boundary = boundaryMatch[1]
+
+    // Collect full request body
+    const chunks = []
+    req.on('data', d => chunks.push(d))
+    await new Promise(resolve => req.on('end', resolve))
+    const raw = Buffer.concat(chunks)
+
+    // Parse multipart fields manually
+    const sep = Buffer.from(`--${boundary}`)
+    const fields = {}
+    let fileBuffer = null
+    let fileName = 'audio.webm'
+    let fileMime = 'audio/webm'
+
+    let start = 0
+    while (start < raw.length) {
+      const sepIdx = raw.indexOf(sep, start)
+      if (sepIdx === -1) break
+      const partStart = sepIdx + sep.length
+      if (raw[partStart] === 45 && raw[partStart + 1] === 45) break // '--' end boundary
+
+      // Skip CRLF after boundary
+      const headerStart = partStart + 2
+      const headerEnd = raw.indexOf(Buffer.from('\r\n\r\n'), headerStart)
+      if (headerEnd === -1) break
+      const headerStr = raw.slice(headerStart, headerEnd).toString('utf8')
+
+      // Find next boundary to get part body
+      const bodyStart = headerEnd + 4
+      const nextSep = raw.indexOf(sep, bodyStart)
+      const bodyEnd = nextSep === -1 ? raw.length : nextSep - 2 // -2 for preceding CRLF
+      const body = raw.slice(bodyStart, bodyEnd)
+
+      const nameMatch = headerStr.match(/name="([^"]+)"/)
+      const filenameMatch = headerStr.match(/filename="([^"]+)"/)
+      const mimeMatch = headerStr.match(/Content-Type:\s*([^\r\n]+)/)
+      const name = nameMatch ? nameMatch[1] : null
+
+      if (name === 'file') {
+        fileBuffer = body
+        if (filenameMatch) fileName = filenameMatch[1]
+        if (mimeMatch) fileMime = mimeMatch[1].trim()
+      } else if (name) {
+        fields[name] = body.toString('utf8')
+      }
+      start = nextSep === -1 ? raw.length : nextSep
+    }
+
+    const { serverUrl, apiKey, model = 'whisper-1', language = '' } = fields
+    if (!serverUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'serverUrl is required' }))
+      return
+    }
+    if (!fileBuffer || fileBuffer.length === 0) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'No audio file received' }))
+      return
+    }
+
+    // Re-build a multipart body to forward to the upstream Whisper endpoint
+    const upstreamBoundary = `----FormBoundary${Date.now()}`
+    const CRLF = '\r\n'
+    const parts = []
+
+    // file part
+    parts.push(
+      `--${upstreamBoundary}${CRLF}` +
+      `Content-Disposition: form-data; name="file"; filename="${fileName}"${CRLF}` +
+      `Content-Type: ${fileMime}${CRLF}${CRLF}`
+    )
+
+    // model part
+    parts.push(
+      `--${upstreamBoundary}${CRLF}` +
+      `Content-Disposition: form-data; name="model"${CRLF}${CRLF}` +
+      model + CRLF
+    )
+
+    // optional language part
+    if (language) {
+      parts.push(
+        `--${upstreamBoundary}${CRLF}` +
+        `Content-Disposition: form-data; name="language"${CRLF}${CRLF}` +
+        language + CRLF
+      )
+    }
+
+    // response_format=json
+    parts.push(
+      `--${upstreamBoundary}${CRLF}` +
+      `Content-Disposition: form-data; name="response_format"${CRLF}${CRLF}` +
+      `json${CRLF}`
+    )
+
+    const endBoundary = `--${upstreamBoundary}--${CRLF}`
+
+    // Build final buffer
+    const headerBuffers = parts.map(p => Buffer.from(p, 'utf8'))
+    const totalSize = headerBuffers.reduce((s, b) => s + b.length, 0)
+      + fileBuffer.length + Buffer.from(endBoundary, 'utf8').length
+      // add CRLF after file body
+      + 2
+
+    const upstreamBody = Buffer.allocUnsafe(totalSize)
+    let offset = 0
+    // Write first header (file part header)
+    headerBuffers[0].copy(upstreamBody, offset); offset += headerBuffers[0].length
+    // Write file body + CRLF
+    fileBuffer.copy(upstreamBody, offset); offset += fileBuffer.length
+    Buffer.from(CRLF, 'utf8').copy(upstreamBody, offset); offset += 2
+    // Write remaining parts (model, language, response_format)
+    for (let i = 1; i < headerBuffers.length; i++) {
+      headerBuffers[i].copy(upstreamBody, offset); offset += headerBuffers[i].length
+    }
+    // End boundary
+    Buffer.from(endBoundary, 'utf8').copy(upstreamBody, offset)
+
+    const base = serverUrl.replace(/\/$/, '')
+    const upHeaders = {
+      'Content-Type': `multipart/form-data; boundary=${upstreamBoundary}`,
+      'Content-Length': String(upstreamBody.length),
+    }
+    if (apiKey) upHeaders['Authorization'] = `Bearer ${apiKey}`
+
+    // Try OpenAI-compat path first, then OpenWebUI path
+    const transcribePaths = ['/v1/audio/transcriptions', '/api/audio/transcriptions']
+    let upstream = null
+    let lastStatus = 0
+    let lastBody = ''
+
+    for (const tPath of transcribePaths) {
+      let r
+      try {
+        r = await fetch(`${base}${tPath}`, {
+          method: 'POST',
+          headers: upHeaders,
+          body: upstreamBody,
+          signal: AbortSignal.timeout(120000),
+        })
+      } catch (e) {
+        res.writeHead(502, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: `Could not reach AI server: ${e.message}` }))
+        return
+      }
+      if (r.status === 404 || r.status === 405) {
+        lastStatus = r.status
+        lastBody = await r.text().catch(() => '')
+        continue
+      }
+      upstream = r
+      break
+    }
+
+    if (!upstream) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({
+        error: `Your AI server does not support audio transcription (HTTP ${lastStatus}). ` +
+          `You need a server with a Whisper-compatible endpoint such as OpenAI, LocalAI, or a self-hosted Whisper API. ` +
+          `OpenWebUI and Ollama do not support audio transcription.`
+      }))
+      return
+    }
+
+    const respText = await upstream.text()
+    if (!upstream.ok) {
+      res.writeHead(upstream.status, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `Upstream error ${upstream.status}: ${respText}` }))
+      return
+    }
+
+    let transcription = ''
+    try {
+      const data = JSON.parse(respText)
+      transcription = data.text ?? data.transcription ?? respText
+    } catch {
+      transcription = respText
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ text: transcription }))
+    return
+  }
+
   // GET /proxy?url=https://... — fetch a remote page server-side and return it,
   // stripping headers that block embedding and rewriting relative URLs so the
   // page renders correctly inside the iframe.
@@ -1051,6 +1247,76 @@ const server = createServer(async (req, res) => {
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ username, results }))
+    return
+  }
+
+  // GET /osint/search-proxy?q=<encoded_query>
+  // Fetches DuckDuckGo HTML results server-side, parses out result cards,
+  // and returns structured JSON — avoids all iframe/CSP issues.
+  if (req.method === 'GET' && url.pathname === '/osint/search-proxy') {
+    setCors(res)
+    const q = url.searchParams.get('q') || ''
+    if (!q) { res.writeHead(400); res.end(JSON.stringify({ error: 'missing q' })); return }
+    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q)}`
+    try {
+      const html = await new Promise((resolve, reject) => {
+        const doGet = (targetUrl) => {
+          https.get(targetUrl, {
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml',
+              'Accept-Language': 'en-US,en;q=0.9',
+            }
+          }, (r) => {
+            if ((r.statusCode === 301 || r.statusCode === 302) && r.headers.location) {
+              doGet(r.headers.location); return
+            }
+            let body = ''
+            r.on('data', c => body += c)
+            r.on('end', () => resolve(body))
+            r.on('error', reject)
+          }).on('error', reject)
+        }
+        doGet(ddgUrl)
+      })
+
+      // Parse result cards from DDG's HTML-only page
+      const results = []
+      // Each result is in <div class="result ..."> with .result__title, .result__url, .result__snippet
+      const resultBlocks = html.match(/<div class="result[^"]*"[^>]*>[\s\S]*?(?=<div class="result[^"]*"|<div class="nav-link"|$)/g) || []
+      for (const block of resultBlocks) {
+        // Title: text inside result__a
+        const titleMatch = block.match(/<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/)
+        const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : null
+        if (!title) continue
+
+        // URL: href on result__a (DDG wraps with redirect URL, extract uddg param or use as-is)
+        const hrefMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/)
+        let href = hrefMatch ? hrefMatch[1] : ''
+        // DDG sometimes encodes the real URL in uddg= query param
+        try {
+          const u = new URL(href.startsWith('//') ? 'https:' + href : href)
+          const uddg = u.searchParams.get('uddg')
+          if (uddg) href = decodeURIComponent(uddg)
+        } catch {}
+
+        // Display URL
+        const dispUrlMatch = block.match(/<span[^>]+class="result__url"[^>]*>([\s\S]*?)<\/span>/)
+        const displayUrl = dispUrlMatch ? dispUrlMatch[1].replace(/<[^>]+>/g, '').trim() : href
+
+        // Snippet
+        const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/)
+        const snippet = snippetMatch ? snippetMatch[1].replace(/<[^>]+>/g, '').trim() : ''
+
+        results.push({ title, href, displayUrl, snippet })
+        if (results.length >= 20) break
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ query: q, results }))
+    } catch (e) {
+      res.writeHead(502); res.end(JSON.stringify({ error: `Search proxy error: ${e.message}` }))
+    }
     return
   }
 
@@ -2023,6 +2289,212 @@ sys.stdout.flush()
     })
 
     req.on('close', () => { py.kill(); try { require('fs').unlinkSync(scriptPath) } catch {} })
+    return
+  }
+
+  // ── Nmap Network Mapping Endpoints ────────────────────────────────────────────
+
+  // POST /security/nmap/scan  { target, scanType, options }
+  // Runs nmap against a target and streams results via SSE
+  if (req.method === 'POST' && url.pathname === '/security/nmap/scan') {
+    setCors(res)
+
+    let body
+    try {
+      body = await new Promise((resolve, reject) => {
+        let d = ''
+        req.on('data', c => { d += c })
+        req.on('end', () => { try { resolve(JSON.parse(d)) } catch { reject(new Error('bad json')) } })
+        req.on('error', reject)
+      })
+    } catch (e) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: e.message }))
+      return
+    }
+
+    const { target, scanType = 'ping', ports = '', timing = 'T3' } = body
+
+    if (!target || typeof target !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'target is required' }))
+      return
+    }
+
+    // Sanitize target: allow IPs, CIDR ranges, hostnames — reject shell metacharacters
+    if (!/^[a-zA-Z0-9.\-/:_\[\] ]+$/.test(target)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Invalid characters in target' }))
+      return
+    }
+
+    // Build nmap args based on scan type
+    // -v enables per-host activity lines on stderr; --stats-every emits periodic progress %
+    const args = ['-oX', '-', '-v', '--stats-every', '5s']  // XML output to stdout
+
+    switch (scanType) {
+      case 'ping':
+        args.push('-sn')
+        break
+      case 'quick':
+        args.push('-F')
+        break
+      case 'service':
+        args.push('-sV', '-sC')
+        break
+      case 'os':
+        args.push('-O')
+        break
+      case 'full':
+        args.push('-p-')
+        break
+      case 'udp':
+        args.push('-sU', '-F')
+        break
+      case 'vuln':
+        args.push('--script=vuln')
+        break
+      default:
+        args.push('-F')
+    }
+
+    if (ports && /^[0-9,\-]+$/.test(ports)) {
+      args.push('-p', ports)
+    }
+
+    // Apply timing template (T0-T5)
+    if (/^T[0-5]$/.test(timing)) {
+      args.push(`-${timing}`)
+    }
+
+    args.push(...target.trim().split(/\s+/))
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    })
+
+    const sendSSE = (type, data) => res.write(`data: ${JSON.stringify({ type, ...data })}\n\n`)
+
+    sendSSE('progress', { message: `Starting nmap scan: nmap ${args.join(' ')}` })
+
+    const { spawn } = await import('child_process')
+    const nmap = spawn('nmap', args)
+
+    let xmlBuffer = ''
+    let stderrBuffer = ''
+
+    nmap.stdout.on('data', chunk => {
+      xmlBuffer += chunk.toString()
+    })
+
+    nmap.stderr.on('data', chunk => {
+      const text = chunk.toString()
+      stderrBuffer += text
+      // Forward all non-empty stderr lines so the client can show live progress
+      const lines = text.split('\n').filter(l => l.trim())
+      for (const line of lines) {
+        sendSSE('progress', { message: line.trim() })
+      }
+    })
+
+    nmap.on('close', code => {
+      if (code !== 0 && !xmlBuffer.includes('<nmaprun')) {
+        sendSSE('error', { message: stderrBuffer || `nmap exited with code ${code}` })
+        res.end()
+        return
+      }
+
+      // Parse the XML output into a structured result
+      try {
+        const hosts = []
+        const hostMatches = xmlBuffer.matchAll(/<host[^>]*>([\s\S]*?)<\/host>/g)
+        for (const hm of hostMatches) {
+          const hostXml = hm[0]
+
+          // Status
+          const statusMatch = hostXml.match(/<status state="([^"]+)"/)
+          const state = statusMatch ? statusMatch[1] : 'unknown'
+
+          // Address
+          const addrMatch = hostXml.match(/<address addr="([^"]+)" addrtype="ipv4"/)
+          const ip = addrMatch ? addrMatch[1] : ''
+          const macMatch = hostXml.match(/<address addr="([^"]+)" addrtype="mac"/)
+          const mac = macMatch ? macMatch[1] : ''
+          const vendorMatch = hostXml.match(/addrtype="mac" vendor="([^"]+)"/)
+          const vendor = vendorMatch ? vendorMatch[1] : ''
+
+          // Hostnames
+          const hostnameMatches = [...hostXml.matchAll(/<hostname name="([^"]+)"/g)]
+          const hostnames = hostnameMatches.map(m => m[1])
+
+          // OS
+          const osMatch = hostXml.match(/<osmatch name="([^"]+)" accuracy="([^"]+)"/)
+          const os = osMatch ? { name: osMatch[1], accuracy: osMatch[2] } : null
+
+          // Ports
+          const ports_found = []
+          const portMatches = hostXml.matchAll(/<port protocol="([^"]+)" portid="([^"]+)">([\s\S]*?)<\/port>/g)
+          for (const pm of portMatches) {
+            const portXml = pm[3]
+            const stateM = portXml.match(/<state state="([^"]+)"/)
+            const serviceM = portXml.match(/<service name="([^"]+)"/)
+            const productM = portXml.match(/product="([^"]+)"/)
+            const versionM = portXml.match(/version="([^"]*)"/)
+            const extraM = portXml.match(/extrainfo="([^"]*)"/)
+            ports_found.push({
+              protocol: pm[1],
+              port: parseInt(pm[2], 10),
+              state: stateM ? stateM[1] : 'unknown',
+              service: serviceM ? serviceM[1] : '',
+              product: productM ? productM[1] : '',
+              version: versionM ? versionM[1] : '',
+              extrainfo: extraM ? extraM[1] : '',
+            })
+          }
+
+          // Scripts / NSE output
+          const scriptMatches = [...hostXml.matchAll(/<script id="([^"]+)" output="([^"]+)"/g)]
+          const scripts = scriptMatches.map(m => ({ id: m[1], output: m[2] }))
+
+          hosts.push({ ip, mac, vendor, hostnames, state, os, ports: ports_found, scripts })
+        }
+
+        // Summary stats from the XML
+        const runMatch = xmlBuffer.match(/args="([^"]*)"/)
+        const summaryMatch = xmlBuffer.match(/<runstats>[\s\S]*?<hosts up="(\d+)" down="(\d+)" total="(\d+)"/)
+        const elapsed = xmlBuffer.match(/elapsed="([^"]+)"/)
+
+        sendSSE('result', {
+          hosts,
+          summary: {
+            command: runMatch ? `nmap ${runMatch[1]}` : `nmap ${args.join(' ')}`,
+            hostsUp: summaryMatch ? parseInt(summaryMatch[1]) : hosts.filter(h => h.state === 'up').length,
+            hostsDown: summaryMatch ? parseInt(summaryMatch[2]) : 0,
+            hostsTotal: summaryMatch ? parseInt(summaryMatch[3]) : hosts.length,
+            elapsed: elapsed ? parseFloat(elapsed[1]) : null,
+          },
+          rawXml: xmlBuffer,
+        })
+      } catch (e) {
+        sendSSE('error', { message: `Failed to parse nmap output: ${e.message}` })
+      }
+
+      res.end()
+    })
+
+    nmap.on('error', err => {
+      if (err.code === 'ENOENT') {
+        sendSSE('error', { message: 'nmap is not installed. Install it with: apt-get install nmap' })
+      } else {
+        sendSSE('error', { message: err.message })
+      }
+      res.end()
+    })
+
+    req.on('close', () => { try { nmap.kill() } catch {} })
     return
   }
 

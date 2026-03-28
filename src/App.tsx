@@ -13,6 +13,8 @@ import SecurityView from './features/security/SecurityView'
 import CommunicationsView from './features/communications/CommunicationsView'
 import HelpView from './features/help/HelpView'
 import AccessibilityView from './features/accessibility/AccessibilityView'
+import AudioToTextView from './features/audio/AudioToTextView'
+import MinecraftView from './features/minecraft/MinecraftView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -72,7 +74,7 @@ export default function App() {
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-surface-900">
       <Sidebar />
-      <main className="flex-1 flex overflow-hidden">
+      <main className="flex-1 flex overflow-hidden h-full">
         {activeView === 'sync' ? (
           <SyncView />
         ) : activeView === 'diagram' ? (
@@ -93,6 +95,10 @@ export default function App() {
           <CommunicationsView />
         ) : activeView === 'accessibility' ? (
           <AccessibilityView />
+        ) : activeView === 'audio-to-text' ? (
+          <AudioToTextView />
+        ) : activeView === 'minecraft' ? (
+          <MinecraftView />
         ) : activeView === 'help' ? (
           <HelpView />
         ) : !hasVault ? (

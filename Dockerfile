@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     apktool \
     python3 \
     python3-pip \
+    nmap \
     && pip3 install --no-cache-dir scapy \
     && rm -rf /var/lib/apt/lists/*
 

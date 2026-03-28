@@ -9,12 +9,13 @@ import IncidentResponseTemplateView from './IncidentResponseTemplateView'
 import OsintView from './OsintView'
 import PcapAnalyzerView from './PcapAnalyzerView'
 import LiveCaptureView from './LiveCaptureView'
+import NetworkMapView from './NetworkMapView'
 import ApkAnalyzerView from './ApkAnalyzerView'
 
 type TopTool = 'osint' | 'network-analysis' | 'apktool' | 'soot-framework' | 'reporting-tools'
 type ApktoolTab = 'apk-decompiler' | 'manifest-analyzer'
 type SootTab = 'soot-compiler' | 'jimple-analyzer'
-type NetworkTab = 'pcap-analyzer' | 'live-capture'
+type NetworkTab = 'pcap-analyzer' | 'live-capture' | 'network-map'
 type ReportingTab = 'cvss-calculator' | 'mitre-navigator' | 'pentest-report' | 'incident-response'
 
 interface Tool {
@@ -39,6 +40,7 @@ const APKTOOL_TABS: { id: ApktoolTab; label: string }[] = [
 const NETWORK_TABS: { id: NetworkTab; label: string }[] = [
   { id: 'pcap-analyzer', label: 'PCAP Analyzer' },
   { id: 'live-capture',  label: 'Live Capture' },
+  { id: 'network-map',   label: 'Network Map' },
 ]
 
 const REPORTING_TABS: { id: ReportingTab; label: string }[] = [
@@ -123,6 +125,7 @@ export default function SecurityView() {
         {activeTool === 'osint'                                                          && <OsintView />}
         {activeTool === 'network-analysis' && networkTab === 'pcap-analyzer'            && <PcapAnalyzerView />}
         {activeTool === 'network-analysis' && networkTab === 'live-capture'             && <LiveCaptureView />}
+        {activeTool === 'network-analysis' && networkTab === 'network-map'              && <NetworkMapView />}
         {activeTool === 'apktool' && apktoolTab === 'apk-decompiler'                    && <ApkAnalyzerView />}
         {activeTool === 'apktool' && apktoolTab === 'manifest-analyzer'                 && <AndroidManifestAnalyzerView />}
         {activeTool === 'soot-framework' && sootTab === 'soot-compiler'                 && <SootCompilerView />}

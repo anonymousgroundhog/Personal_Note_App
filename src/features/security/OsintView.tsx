@@ -9,7 +9,7 @@ const SERVER = 'http://localhost:3001'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type OsintTab = 'domain' | 'crtsh' | 'username'
+type OsintTab = 'domain' | 'crtsh' | 'username' | 'dorking'
 
 interface GeoIP {
   ip: string
@@ -769,12 +769,333 @@ function UsernameTab() {
   )
 }
 
+// ── Google Dorking Tab ─────────────────────────────────────────────────────────
+
+interface DorkTemplate {
+  label: string
+  category: string
+  description: string
+  dork: (target: string) => string
+}
+
+const DORK_TEMPLATES: DorkTemplate[] = [
+  // Site-specific
+  { category: 'Site Recon',    label: 'All indexed pages',        description: 'Every page Google has indexed for this domain',         dork: t => `site:${t}` },
+  { category: 'Site Recon',    label: 'Subdomains',               description: 'Discover subdomains',                                   dork: t => `site:*.${t} -www` },
+  { category: 'Site Recon',    label: 'Login pages',              description: 'Find login/admin portals',                              dork: t => `site:${t} inurl:login OR inurl:admin OR inurl:signin` },
+  { category: 'Site Recon',    label: 'Config/env files',         description: 'Exposed configuration and environment files',           dork: t => `site:${t} ext:env OR ext:cfg OR ext:conf OR ext:ini` },
+  { category: 'Site Recon',    label: 'Backup files',             description: 'Backup or old files accidentally exposed',              dork: t => `site:${t} ext:bak OR ext:old OR ext:backup OR ext:orig` },
+  { category: 'Site Recon',    label: 'Log files',                description: 'Exposed log files',                                     dork: t => `site:${t} ext:log` },
+  { category: 'Site Recon',    label: 'Database files',           description: 'SQL dumps and database exports',                        dork: t => `site:${t} ext:sql OR ext:db OR ext:sqlite` },
+  { category: 'Site Recon',    label: 'Directory listing',        description: 'Open directory listings',                               dork: t => `site:${t} intitle:"index of /"` },
+  // Sensitive data
+  { category: 'Sensitive Data', label: 'Passwords in text',       description: 'Pages containing the word "password"',                  dork: t => `site:${t} intext:password OR intext:"api key" OR intext:"secret"` },
+  { category: 'Sensitive Data', label: 'API keys / tokens',       description: 'Exposed API credentials in page content',              dork: t => `site:${t} intext:"api_key" OR intext:"access_token" OR intext:"bearer"` },
+  { category: 'Sensitive Data', label: 'Email addresses',         description: 'Email addresses indexed on the site',                   dork: t => `site:${t} intext:"@${t}"` },
+  { category: 'Sensitive Data', label: 'SSN / CC patterns',       description: 'Pages potentially containing PII patterns',             dork: t => `site:${t} intext:"social security" OR intext:"credit card"` },
+  // Technology fingerprinting
+  { category: 'Tech Recon',    label: 'WordPress',                description: 'Identify WordPress installations',                      dork: t => `site:${t} inurl:wp-content OR inurl:wp-admin` },
+  { category: 'Tech Recon',    label: 'PHP files',                description: 'PHP pages (may expose errors)',                         dork: t => `site:${t} ext:php` },
+  { category: 'Tech Recon',    label: 'ASP/ASPX files',           description: 'Microsoft ASP pages',                                   dork: t => `site:${t} ext:asp OR ext:aspx` },
+  { category: 'Tech Recon',    label: 'JSP files',                description: 'Java server pages',                                     dork: t => `site:${t} ext:jsp OR ext:jspx` },
+  { category: 'Tech Recon',    label: 'Error messages',           description: 'Error pages leaking stack traces or paths',             dork: t => `site:${t} "Warning: mysql_" OR "Fatal error" OR "Uncaught exception"` },
+  // Documents & files
+  { category: 'Documents',     label: 'PDF files',                description: 'Indexed PDF documents',                                 dork: t => `site:${t} ext:pdf` },
+  { category: 'Documents',     label: 'Excel / CSV files',        description: 'Spreadsheets that may contain data exports',            dork: t => `site:${t} ext:xls OR ext:xlsx OR ext:csv` },
+  { category: 'Documents',     label: 'Word documents',           description: 'Word documents (may contain metadata)',                  dork: t => `site:${t} ext:doc OR ext:docx` },
+  { category: 'Documents',     label: 'XML files',                description: 'Exposed XML data feeds or configs',                     dork: t => `site:${t} ext:xml` },
+  // Infrastructure
+  { category: 'Infrastructure', label: 'Open redirect params',    description: 'URL params commonly used for open redirects',           dork: t => `site:${t} inurl:redirect= OR inurl:url= OR inurl:next= OR inurl:return=` },
+  { category: 'Infrastructure', label: 'Exposed git',             description: '/.git directory exposed',                               dork: t => `site:${t} inurl:"/.git"` },
+  { category: 'Infrastructure', label: 'phpinfo()',               description: 'PHP info pages leaking server config',                  dork: t => `site:${t} inurl:phpinfo.php OR intitle:"phpinfo()"` },
+  { category: 'Infrastructure', label: 'Robots.txt',              description: 'Disallowed paths hinting at hidden areas',              dork: t => `site:${t} inurl:robots.txt` },
+  // Third-party / code leaks
+  { category: 'Code Leaks',    label: 'GitHub (org/user)',        description: 'Repositories linked to this domain on GitHub',          dork: t => `site:github.com "${t}"` },
+  { category: 'Code Leaks',    label: 'Pastebin leaks',           description: 'Pastes mentioning this domain',                         dork: t => `site:pastebin.com "${t}"` },
+  { category: 'Code Leaks',    label: 'Trello boards',            description: 'Public Trello boards referencing the domain',           dork: t => `site:trello.com "${t}"` },
+  { category: 'Code Leaks',    label: 'LinkedIn employees',       description: 'LinkedIn profiles associated with the org',             dork: t => `site:linkedin.com "${t}"` },
+]
+
+const DORK_CATEGORIES = [...new Set(DORK_TEMPLATES.map(d => d.category))]
+
+function dorkResultsToMarkdown(target: string, queries: string[]): string {
+  const ts = new Date().toISOString()
+  return `---
+tags:
+  - osint
+  - google-dorking
+target: "${target}"
+date: "${ts}"
+---
+
+# OSINT: Google Dork Queries — ${target}
+
+> Generated: ${ts}
+
+## Queries
+
+${queries.map(q => `- \`${q}\``).join('\n')}
+`
+}
+
+interface SearchResult {
+  title: string
+  href: string
+  displayUrl: string
+  snippet: string
+}
+
+// Fetches results via local proxy (server-side fetch avoids all CSP/iframe issues).
+function DorkResultsModal({ query, onClose }: { query: string; onClose: () => void }) {
+  const [loading, setLoading] = useState(true)
+  const [results, setResults] = useState<SearchResult[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchResults = useCallback(async (q: string) => {
+    setLoading(true); setError(null); setResults([])
+    try {
+      const res = await fetch(`${SERVER}/osint/search-proxy?q=${encodeURIComponent(q)}`)
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setResults(data.results || [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  React.useEffect(() => { fetchResults(query) }, [query, fetchResults])
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="relative flex flex-col m-6 rounded-xl overflow-hidden border border-gray-700 shadow-2xl bg-gray-900"
+        style={{ height: 'calc(100vh - 3rem)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-2.5 bg-gray-800 border-b border-gray-700 shrink-0">
+          <Search size={14} className="text-emerald-400 shrink-0" />
+          <code className="flex-1 text-xs font-mono text-emerald-300 truncate">{query}</code>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <CopyButton text={query} />
+            <a
+              href={`https://www.google.com/search?q=${encodeURIComponent(query)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+            >
+              Google ↗
+            </a>
+            <a
+              href={`https://duckduckgo.com/?q=${encodeURIComponent(query)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-2 py-1 text-xs rounded bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors"
+            >
+              DDG ↗
+            </a>
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Results */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          {loading && (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 size={24} className="animate-spin text-emerald-400" />
+              <span className="ml-3 text-sm text-gray-400">Searching…</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-900/20 border border-red-800 text-red-400 text-sm">
+              <AlertCircle size={14} className="shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {!loading && !error && results.length === 0 && (
+            <div className="text-center py-16 text-gray-500 text-sm">No results found.</div>
+          )}
+
+          {results.map((r, i) => (
+            <a
+              key={i}
+              href={r.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block p-3 rounded-lg border border-gray-700 hover:border-emerald-600 bg-gray-800 hover:bg-gray-750 transition-colors group"
+            >
+              <div className="text-xs text-emerald-500 truncate mb-0.5">{r.displayUrl}</div>
+              <div className="text-sm font-medium text-blue-400 group-hover:text-blue-300 mb-1">{r.title}</div>
+              {r.snippet && <div className="text-xs text-gray-400 line-clamp-2">{r.snippet}</div>}
+            </a>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function GoogleDorkingTab() {
+  const [target, setTarget] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('All')
+  const [customDork, setCustomDork] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [activeQuery, setActiveQuery] = useState<string | null>(null)
+
+  const cleanTarget = target.trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+
+  const filtered = selectedCategory === 'All'
+    ? DORK_TEMPLATES
+    : DORK_TEMPLATES.filter(d => d.category === selectedCategory)
+
+  const allQueries = DORK_TEMPLATES.map(d => d.dork(cleanTarget || 'example.com'))
+
+  function runSearch(query: string) {
+    setActiveQuery(query)
+  }
+
+  function runCustom() {
+    if (!customDork.trim()) return
+    runSearch(customDork.trim())
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Target input */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Target Domain</label>
+        <div className="flex gap-2">
+          <input
+            value={target}
+            onChange={e => setTarget(e.target.value)}
+            placeholder="example.com"
+            className="flex-1 px-3 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          {cleanTarget && (
+            <button
+              onClick={() => setImporting(true)}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-surface-700 transition-colors"
+            >
+              <FileText size={13} />
+              Save Queries
+            </button>
+          )}
+        </div>
+        {cleanTarget && cleanTarget !== target.trim() && (
+          <p className="text-xs text-gray-500 dark:text-gray-400">Using: <code className="font-mono">{cleanTarget}</code></p>
+        )}
+      </div>
+
+      {/* Custom dork input */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Custom Dork</label>
+        <div className="flex gap-2">
+          <input
+            value={customDork}
+            onChange={e => setCustomDork(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && runCustom()}
+            placeholder={`site:${cleanTarget || 'example.com'} intext:"password"`}
+            className="flex-1 px-3 py-2 text-sm font-mono rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+          />
+          <button
+            onClick={runCustom}
+            disabled={!customDork.trim()}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-40 transition-colors"
+          >
+            <Search size={13} />
+            Search
+          </button>
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {['site:', 'inurl:', 'intitle:', 'intext:', 'filetype:', 'ext:', 'cache:'].map(op => (
+            <button
+              key={op}
+              onClick={() => setCustomDork(prev => prev + op)}
+              className="px-2 py-0.5 text-xs font-mono rounded bg-gray-100 dark:bg-surface-700 text-gray-600 dark:text-gray-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+            >
+              {op}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Category filter */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {['All', ...DORK_CATEGORIES].map(cat => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`px-2.5 py-1 text-xs rounded-full font-medium transition-colors ${
+              selectedCategory === cat
+                ? 'bg-emerald-500 text-white'
+                : 'bg-gray-100 dark:bg-surface-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-surface-600'
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
+      </div>
+
+      {/* Dork templates */}
+      <div className="space-y-2">
+        {filtered.map((dork, i) => {
+          const query = dork.dork(cleanTarget || 'example.com')
+          return (
+            <div
+              key={i}
+              className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-emerald-300 dark:hover:border-emerald-700 transition-colors group"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-xs font-semibold text-gray-800 dark:text-gray-100">{dork.label}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-surface-700 text-gray-500 dark:text-gray-400">{dork.category}</span>
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{dork.description}</p>
+                <code className="text-xs font-mono text-emerald-700 dark:text-emerald-400 break-all">{query}</code>
+              </div>
+              <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <CopyButton text={query} />
+                <button
+                  onClick={() => runSearch(query)}
+                  title="Search"
+                  className="p-1 rounded hover:bg-gray-100 dark:hover:bg-surface-700 text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+                >
+                  <Search size={13} />
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {activeQuery && (
+        <DorkResultsModal query={activeQuery} onClose={() => setActiveQuery(null)} />
+      )}
+
+      {importing && cleanTarget && (
+        <ImportModal
+          content={dorkResultsToMarkdown(cleanTarget, allQueries)}
+          defaultName={`google-dorks-${cleanTarget}`}
+          onClose={() => setImporting(false)}
+        />
+      )}
+    </div>
+  )
+}
+
 // ── Main view ──────────────────────────────────────────────────────────────────
 
 const TABS: { id: OsintTab; label: string; icon: React.ReactNode }[] = [
   { id: 'domain',   label: 'Domain / IP',    icon: <Globe size={14} /> },
   { id: 'crtsh',    label: 'Subdomains',     icon: <ShieldCheck size={14} /> },
   { id: 'username', label: 'Username Search', icon: <User size={14} /> },
+  { id: 'dorking',  label: 'Google Dorking', icon: <Search size={14} /> },
 ]
 
 export default function OsintView() {
@@ -812,6 +1133,7 @@ export default function OsintView() {
         {activeTab === 'domain'   && <DomainTab />}
         {activeTab === 'crtsh'    && <CrtshTab />}
         {activeTab === 'username' && <UsernameTab />}
+        {activeTab === 'dorking'  && <GoogleDorkingTab />}
       </div>
     </div>
   )

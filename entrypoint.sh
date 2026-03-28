@@ -1,14 +1,26 @@
-#!/bin/sh
-# Starts git-server and vite, forwards signals to both so the container stops cleanly.
+#!/bin/bash
+# Starts git-server and vite in their own process groups so SIGTERM reaches all descendants.
 set -e
 
-node git-server.mjs &
+# Start each process in its own process group (setsid) so we can kill the whole tree
+setsid node git-server.mjs &
 GIT_PID=$!
 
-npx vite &
+setsid npx vite &
 VITE_PID=$!
 
-# Forward SIGTERM and SIGINT to both child processes
-trap 'kill $GIT_PID $VITE_PID 2>/dev/null; wait $GIT_PID $VITE_PID 2>/dev/null; exit 0' TERM INT
+_cleanup() {
+  # Kill entire process groups, not just the direct child
+  kill -- -"$GIT_PID"  2>/dev/null || kill "$GIT_PID"  2>/dev/null || true
+  kill -- -"$VITE_PID" 2>/dev/null || kill "$VITE_PID" 2>/dev/null || true
+  wait "$GIT_PID"  2>/dev/null || true
+  wait "$VITE_PID" 2>/dev/null || true
+  exit 0
+}
 
-wait $GIT_PID $VITE_PID
+trap _cleanup TERM INT
+
+# wait -n exits when any child exits; loop keeps us alive until both are gone
+while kill -0 "$GIT_PID" 2>/dev/null || kill -0 "$VITE_PID" 2>/dev/null; do
+  wait -n 2>/dev/null || true
+done
