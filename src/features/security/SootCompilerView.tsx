@@ -111,7 +111,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
             <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-1">Typical Workflow</h3>
             <ol className="ml-4 space-y-1 text-xs text-gray-600 dark:text-gray-400 list-decimal list-outside leading-relaxed">
               <li>Set the <span className="font-medium">APK File</span> path to the APK you want to analyze.</li>
-              <li>Set the <span className="font-medium">Output Directory</span> to where you want Jimple files written (e.g. <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">~/sootOutput</code>).</li>
+              <li>Set the <span className="font-medium">Output Directory</span> to where you want Jimple files written — use the Browse button to pick a folder under your home directory, or use the default <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">/root/host-home/sootOutput</code>.</li>
               <li>Confirm the <span className="font-medium">Android Platforms Directory</span> points to your SDK's <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">platforms/</code> folder.</li>
               <li>Click <span className="font-medium">Run Soot</span> and watch the output panel — large APKs can take a minute or more.</li>
               <li>Once complete, switch to the <span className="font-medium">Jimple Analyzer</span> tab and enter the same output directory to inspect the results.</li>
@@ -399,7 +399,7 @@ function CFGVisualization({ cfg }: { cfg: MethodCFG }) {
 
 export default function SootCompilerView() {
   const [apkPath, setApkPath] = useState('')
-  const [outputDir, setOutputDir] = useState('sootOutput')
+  const [outputDir, setOutputDir] = useState('/root/host-home/sootOutput')
   const [androidJarsPath, setAndroidJarsPath] = useState('/root/Android/Sdk/platforms')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])

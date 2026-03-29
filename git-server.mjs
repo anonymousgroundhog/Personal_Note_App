@@ -3018,9 +3018,9 @@ sys.stdout.flush()
       const body = await parseBody(req)
       let { apkPath, outputDir, androidJarsPath } = body
 
-      apkPath = expandPath(apkPath)
-      outputDir = expandPath(outputDir || 'sootOutput')
-      androidJarsPath = expandPath(androidJarsPath || join(homedir(), 'Android/Sdk/platforms'))
+      apkPath = toHostPath(expandPath(apkPath))
+      outputDir = toHostPath(expandPath(outputDir || '/root/host-home/sootOutput'))
+      androidJarsPath = expandPath(androidJarsPath || '/root/Android/Sdk/platforms')
 
       if (!existsSync(apkPath)) {
         res.writeHead(400, { 'Content-Type': 'application/json' })
