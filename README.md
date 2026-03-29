@@ -138,32 +138,43 @@ cd personal-note-app
 
 **3. Build and start**
 
+The command depends on your OS. Each platform has its own compose override that mounts your home directory into the container correctly.
+
+**Linux / macOS:**
 ```bash
 docker compose up --build
 ```
 
-This works the same on Linux, macOS, and Windows. The Docker image runs Linux internally regardless of your host OS. Java 17 and apktool are installed automatically inside the container.
+**Windows** (PowerShell or CMD):
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.windows.yml up --build
+```
+
+Java 17 and apktool are installed automatically inside the container.
 
 **4. Open the app**
 
 ```
-https://localhost:5173
+http://localhost:5173
 ```
-
-Your browser will show a certificate warning (expected — the app uses a self-signed cert for local HTTPS). Click **Advanced → Proceed** to continue.
 
 ### Subsequent Runs
 
+**Linux / macOS:**
 ```bash
 docker compose up       # start
 docker compose down     # stop
 ```
 
+**Windows:**
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.windows.yml up    # start
+docker compose -f docker-compose.yml -f docker-compose.windows.yml down  # stop
+```
+
 ### Working with Files
 
-The setup script mounts your host home directory into the container at `/root/host-home`. The Browse buttons in the Security tools open a file picker that starts at `/root/host-home`, giving you access to everything under your home directory on the host.
-
-Your notes folder is also mounted at `/root/Notes` for quick access.
+Your host home directory is mounted into the container at `/root/host-home`. The Browse buttons in the Security tools open a file picker that starts there, giving you access to files under your home directory on the host.
 
 ### Android Security Analysis (Soot) in Docker
 

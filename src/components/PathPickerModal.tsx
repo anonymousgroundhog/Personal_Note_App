@@ -46,7 +46,7 @@ export default function PathPickerModal({
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`http://localhost:3001/browse/ls?path=${encodeURIComponent(path)}`)
+      const res = await fetch(`/browse/ls?path=${encodeURIComponent(path)}`)
       if (!res.ok) throw new Error(`Cannot read directory: ${path}`)
       const data = await res.json()
       setCurrentPath(data.path)

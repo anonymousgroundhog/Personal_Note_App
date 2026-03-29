@@ -1,0 +1,7 @@
+services:
+  app:
+    volumes:
+      - ${USERPROFILE}:/root/host-home
+      - ${USERPROFILE}/AppData/Local/Android/Sdk/platforms:/root/Android/Sdk/platforms
+    environment:
+      - HOST_HOME=${USERPROFILE}

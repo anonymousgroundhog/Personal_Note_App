@@ -8,3 +8,4 @@ personal-note-app filter=lfs diff=lfs merge=lfs -text
 *.sh text eol=lf
 Dockerfile text eol=lf
 .dockerignore text eol=lf
+docker-compose*.yml text eol=lf

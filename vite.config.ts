@@ -136,6 +136,10 @@ export default defineConfig({
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
+      '/browse': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+      },
     },
   },
   optimizeDeps: {
