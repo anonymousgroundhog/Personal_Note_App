@@ -94,7 +94,9 @@ For more details on building and distribution, see:
 
 ---
 
-## Running with Docker
+## Running with Docker (Recommended)
+
+> **This is the preferred and most stable way to run the app.** The Docker setup is the primary tested environment — all security tools, file browsing, and platform integrations are developed and validated against it. If you're setting up for the first time, start here.
 
 Docker lets you run the app — including Java, apktool, and all security tools — without installing anything except Docker itself. Works on **Linux, macOS, and Windows**.
 
@@ -228,7 +230,9 @@ docker compose up --build
 
 This guide will walk you through installing everything you need to run the Personal Note App. Even if you're not technical, just follow the steps for your operating system.
 
-### Quick Start (Core App Only)
+### Quick Start (Core App Only, Node.js)
+
+> **Note:** The [Docker setup](#running-with-docker-recommended) above is the recommended approach. Use Node.js directly only if you prefer not to use Docker or need a lightweight setup for non-security features.
 
 If you only need notes, GSD, Gantt, Calendar, Finance, Academia, and the other general-purpose tools — and do **not** need Android security analysis — you only need Node.js:
 
