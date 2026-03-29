@@ -3020,7 +3020,16 @@ sys.stdout.flush()
 
       apkPath = toHostPath(expandPath(apkPath))
       outputDir = toHostPath(expandPath(outputDir || '/root/host-home/sootOutput'))
-      androidJarsPath = expandPath(androidJarsPath || '/root/Android/Sdk/platforms')
+      // Resolve android jars: prefer what the user specified, then host SDK mount, then
+      // the in-container downloaded platforms (works on Windows where host SDK may not exist)
+      androidJarsPath = expandPath(androidJarsPath || '')
+      if (!androidJarsPath || !existsSync(androidJarsPath)) {
+        const candidates = [
+          '/root/Android/Sdk/platforms',
+          PLATFORMS_INSTALL_DIR,
+        ]
+        androidJarsPath = candidates.find(p => existsSync(p) && readdirSync(p).length > 0) || androidJarsPath || '/root/Android/Sdk/platforms'
+      }
 
       if (!existsSync(apkPath)) {
         res.writeHead(400, { 'Content-Type': 'application/json' })

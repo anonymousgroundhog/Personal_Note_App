@@ -112,7 +112,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
             <ol className="ml-4 space-y-1 text-xs text-gray-600 dark:text-gray-400 list-decimal list-outside leading-relaxed">
               <li>Set the <span className="font-medium">APK File</span> path to the APK you want to analyze.</li>
               <li>Set the <span className="font-medium">Output Directory</span> to where you want Jimple files written — use the Browse button to pick a folder under your home directory, or use the default <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">/root/host-home/sootOutput</code>.</li>
-              <li>Confirm the <span className="font-medium">Android Platforms Directory</span> points to your SDK's <code className="font-mono bg-gray-100 dark:bg-gray-700 px-1 rounded">platforms/</code> folder.</li>
+              <li>The <span className="font-medium">Android Platforms Directory</span> is auto-detected from the container's installed platforms — leave it blank unless you need to override it.</li>
               <li>Click <span className="font-medium">Run Soot</span> and watch the output panel — large APKs can take a minute or more.</li>
               <li>Once complete, switch to the <span className="font-medium">Jimple Analyzer</span> tab and enter the same output directory to inspect the results.</li>
             </ol>
@@ -400,7 +400,7 @@ function CFGVisualization({ cfg }: { cfg: MethodCFG }) {
 export default function SootCompilerView() {
   const [apkPath, setApkPath] = useState('')
   const [outputDir, setOutputDir] = useState('/root/host-home/sootOutput')
-  const [androidJarsPath, setAndroidJarsPath] = useState('/root/Android/Sdk/platforms')
+  const [androidJarsPath, setAndroidJarsPath] = useState('')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [browsingApk, setBrowsingApk] = useState(false)
@@ -632,7 +632,7 @@ export default function SootCompilerView() {
         onSelect={onPickerSelect}
         title="Select Android Platforms Directory"
         dirOnly={true}
-        startPath="/root/host-home/Android/Sdk/platforms"
+        startPath="/root/host-home"
       />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
 
@@ -709,7 +709,7 @@ export default function SootCompilerView() {
                   type="text"
                   value={androidJarsPath}
                   onChange={e => setAndroidJarsPath(e.target.value)}
-                  placeholder="e.g. /home/user/Android/Sdk/platforms"
+                  placeholder="Auto-detected (leave blank to use installed platforms)"
                   className="flex-1 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                 />
                 <button
