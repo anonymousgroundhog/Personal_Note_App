@@ -96,49 +96,22 @@ For more details on building and distribution, see:
 
 ## Running with Docker
 
-Docker lets you run the app without installing Node.js, git, or any other dependencies on your machine. Works on **Linux, macOS, and Windows**.
+Docker lets you run the app — including Java, apktool, and all security tools — without installing anything except Docker itself. Works on **Linux, macOS, and Windows**.
 
 ### Prerequisites
 
-- [Docker](https://docs.docker.com/get-docker/) installed and running
-- [Docker Compose](https://docs.docker.com/compose/install/) (included with Docker Desktop)
+- [Docker Desktop](https://docs.docker.com/get-docker/) installed and running (includes Docker Compose)
 
-### Setup
-
-**1. Fix Docker DNS (required on corporate/university networks)**
-
-If your network uses custom DNS servers (e.g., a university or workplace network), Docker containers may fail to resolve package mirrors during the build. Configure Docker to use your network's DNS:
-
-```bash
-# Find your DNS servers
-cat /etc/resolv.conf   # Linux — look for "nameserver" lines
-
-# Create Docker daemon config with your DNS servers
-sudo mkdir -p /etc/docker
-sudo tee /etc/docker/daemon.json << 'EOF'
-{
-  "dns": ["<your-dns-1>", "<your-dns-2>", "8.8.8.8"]
-}
-EOF
-
-# Restart Docker
-sudo systemctl restart docker
-```
-
-On **macOS/Windows**, open Docker Desktop → Settings → Docker Engine and add the `dns` key to the JSON config there.
-
-> **Skip this step** if you're on a home network or if Docker builds work fine already.
-
-**2. Clone the repo**
+### 1. Clone the repo
 
 ```bash
 git clone <repo-url>
 cd personal-note-app
 ```
 
-**3. Build and start**
+### 2. Build and start
 
-The command depends on your OS. Each platform has its own compose override that mounts your home directory into the container correctly.
+The command depends on your OS. Each platform mounts your home directory into the container so the file browser and Soot output reach your actual filesystem.
 
 **Linux / macOS:**
 ```bash
@@ -150,13 +123,15 @@ docker compose up --build
 docker compose -f docker-compose.yml -f docker-compose.windows.yml up --build
 ```
 
-Java 17 and apktool are installed automatically inside the container.
+The first build takes a few minutes — it installs Java 17, apktool, Python, nmap, and all Node dependencies inside the image. Subsequent starts are fast.
 
-**4. Open the app**
+### 3. Open the app
 
 ```
 http://localhost:5173
 ```
+
+Click **Open Vault Folder** and select a folder on your computer to store your notes.
 
 ### Subsequent Runs
 
@@ -174,27 +149,78 @@ docker compose -f docker-compose.yml -f docker-compose.windows.yml down  # stop
 
 ### Working with Files
 
-Your host home directory is mounted into the container at `/root/host-home`. The Browse buttons in the Security tools open a file picker that starts there, giving you access to files under your home directory on the host.
+Your host home directory is mounted into the container at `/root/host-home`. The **Browse** buttons in the Security tools open a file picker rooted there, giving you access to your entire home directory from inside the container.
+
+- **APK files** — place your `.apk` anywhere under your home directory and use the Browse button to find it
+- **Soot output** — defaults to `sootOutput/` inside your home directory (i.e. `~/sootOutput` on the host), created automatically on first run
 
 ### Android Security Analysis (Soot) in Docker
 
-Java 17 and apktool are installed automatically in the container. `JAVA_HOME` is detected at build time and works on both `amd64` (Linux/Windows) and `arm64` (Apple Silicon).
+Java 17 and apktool are pre-installed in the container image — no host installation required.
 
-**Android SDK platforms** are mounted from `ANDROID_SDK_ROOT/platforms` on your host (set by the setup script). If you don't have the SDK installed, use the **Install** button in the Security view to download the platform JARs — they are saved to `~/.note-app-security/android-platforms` on your host and persist across rebuilds.
+**Android SDK platforms** — the Soot compiler needs Android platform JARs (`-android-jars`) to decompile APKs. Two options:
 
-**APK files:** Use the Browse button in the Soot Compiler tab to navigate your host filesystem under `/root/host-home` and select any `.apk` file.
+1. **Download inside the app (recommended for all platforms):** Go to **Security → Soot Framework → Install** and use the built-in installer to download platform stubs. They are saved to the `soot-data` Docker volume and persist across container restarts and rebuilds — you only do this once.
 
-### Environment Variables
+2. **Use your host Android SDK (Linux/macOS only):** If you have Android Studio installed, the `platforms/` directory from your SDK is mounted into the container automatically via `docker-compose.override.yml`. The Soot compiler detects it automatically.
 
-The setup script writes a `.env` file with paths for your machine. You can edit it manually if needed:
+The **Android Platforms Directory** field in the Soot Compiler can be left blank — the server auto-detects whichever location has platforms installed.
 
-| Variable | Description | Linux example | macOS example | Windows example |
-|---|---|---|---|---|
-| `HOST_HOME` | Your host home directory | `/home/yourname` | `/Users/yourname` | `C:/Users/YourName` |
-| `NOTES_DIR` | Notes folder on host | `/home/yourname/Notes` | `/Users/yourname/Notes` | `C:/Users/YourName/Notes` |
-| `ANDROID_SDK_ROOT` | Android SDK on host | `/home/yourname/Android/Sdk` | `/Users/yourname/Library/Android/sdk` | `C:/Users/YourName/AppData/Local/Android/Sdk` |
-| `GIT_SERVER_PORT` | Backend git server port | `3001` | `3001` | `3001` |
-| `LOG_LEVEL` | Log verbosity | `info` | `info` | `info` |
+### DNS issues on corporate/university networks
+
+If the build fails with package download errors, Docker may be using the wrong DNS servers. Fix it by telling Docker to use your network's DNS:
+
+**Linux:**
+```bash
+# Find your DNS servers
+cat /etc/resolv.conf   # look for "nameserver" lines
+
+# Configure Docker
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json << 'EOF'
+{
+  "dns": ["<your-dns-1>", "<your-dns-2>", "8.8.8.8"]
+}
+EOF
+sudo systemctl restart docker
+
+# Then retry
+docker compose up --build
+```
+
+**macOS/Windows:** Open Docker Desktop → Settings → Docker Engine and add the `dns` key:
+```json
+{
+  "dns": ["<your-dns-1>", "8.8.8.8"]
+}
+```
+
+### Docker troubleshooting
+
+**"Failed to fetch" in the Browse file picker**
+- The backend server (git-server) isn't running. Check the container logs:
+  ```bash
+  docker compose logs app
+  ```
+- Rebuild with `--no-cache` to ensure a clean image:
+  ```bash
+  docker compose build --no-cache && docker compose up
+  ```
+
+**Browse shows `/root/host-home` but it's empty**
+- The volume mount didn't take effect. Make sure you're using the correct compose command for your OS (Linux/macOS use the default override; Windows requires `-f docker-compose.windows.yml`).
+
+**Soot fails with "Android platforms directory not found"**
+- Use the **Install** button in the Security → Soot Framework tab to download platform stubs into the container. Leave the Android Platforms Directory field blank and the server will find them automatically.
+
+**Windows: `docker compose` can't find `${USERPROFILE}`**
+- Make sure you're running in PowerShell or CMD (not Git Bash). Git Bash translates Windows paths in ways that break volume mounts.
+
+**Build fails on `npm rebuild node-pty`**
+- This is a native module. If the build warning appears but the container starts, the terminal feature will be unavailable but everything else works normally. If the container itself fails to start, rebuild:
+  ```bash
+  docker compose build --no-cache
+  ```
 
 ---
 
