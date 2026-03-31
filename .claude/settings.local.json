@@ -118,7 +118,9 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(list\\(d.get\\(''''scripts'''',{}\\).keys\\(\\)\\)\\)\")",
       "Bash(ip route:*)",
       "Bash(dos2unix --version)",
-      "Bash(apt-cache show:*)"
+      "Bash(apt-cache show:*)",
+      "Bash(git commit:*)",
+      "Bash(defaults\" option in modal. Escape key or clicking backdrop closes modal.:*)"
     ]
   }
 }
