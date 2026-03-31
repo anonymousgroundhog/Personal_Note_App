@@ -6,7 +6,8 @@ import {
 } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { useVaultStore } from '../../stores/vaultStore'
-import { git, gitStream, getGitCaps, isServerReachable, browseDirectory } from '../../lib/github/gitClient'
+import { git, gitStream, getGitCaps, isServerReachable } from '../../lib/github/gitClient'
+import { DirectoryBrowser } from '../../components/DirectoryBrowser'
 import type { GitCaps } from '../../lib/github/gitClient'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -95,18 +96,46 @@ export default function SyncView() {
     if (!path || !serverUp) return
     setStatus('checking')
     try {
+      // Debug: check git config and HEAD
+      const gitDirRes = await git(path, ['rev-parse', '--git-dir'])
+      addLog('info', `Git directory: ${gitDirRes.stdout.trim()}`)
+
+      const headRes = await git(path, ['rev-parse', '--abbrev-ref', 'HEAD'])
+      if (headRes.code === 0) {
+        addLog('info', `HEAD: ${headRes.stdout.trim()}`)
+      }
+
       // Check if inside a git repo
       const rev = await git(path, ['rev-parse', '--is-inside-work-tree'])
-      if (rev.code !== 0 || rev.stdout.trim() !== 'true') {
+      if (rev.code !== 0) {
+        addLog('error', `Git detection failed (code ${rev.code}): ${rev.stderr || rev.stdout}`)
+        setIsRepo(false)
+        setStatus('idle')
+        return
+      }
+      if (rev.stdout.trim() !== 'true') {
+        addLog('error', `Not a git repository (unexpected output: "${rev.stdout.trim()}")`)
         setIsRepo(false)
         setStatus('idle')
         return
       }
       setIsRepo(true)
 
+      // Fetch latest from remote to ensure we have all branches
+      const fetchRes = await git(path, ['fetch', 'origin'])
+      if (fetchRes.code === 0) {
+        addLog('info', 'Fetched latest branches from origin')
+      } else {
+        addLog('warn', `Fetch warning: ${fetchRes.stderr || 'no error message'}`)
+      }
+
       // Current branch
       const branchRes = await git(path, ['branch', '--show-current'])
       const branch = branchRes.stdout.trim() || 'main'
+      if (branchRes.code !== 0) {
+        addLog('warn', `Failed to get current branch: ${branchRes.stderr || branchRes.stdout}`)
+      }
+      addLog('info', `Current branch: ${branch}`)
       setCurrentBranch(branch)
       setSelectedBranch(branch)
 
@@ -114,12 +143,18 @@ export default function SyncView() {
       const remoteRes = await git(path, ['remote', 'get-url', 'origin'])
       setRemoteUrl(remoteRes.code === 0 ? remoteRes.stdout.trim() : '')
 
-      // All branches (local + remote)
-      const branchesRes = await git(path, ['branch', '-a', '--format=%(refname:short)'])
-      const allBranches = branchesRes.stdout
+      // All branches (local + remote) — use show-ref for reliable parsing
+      const showRefRes = await git(path, ['show-ref'])
+      const allBranches = showRefRes.stdout
         .split('\n')
-        .map(b => b.trim().replace(/^origin\//, ''))
-        .filter(b => b && !b.startsWith('HEAD'))
+        .filter(line => line.trim())
+        .map(line => {
+          // Format: "abc123def refs/heads/main" or "abc123def refs/remotes/origin/main"
+          const match = line.match(/refs\/(heads|remotes\/origin)\/(.+)$/)
+          return match ? match[2] : null
+        })
+        .filter((b): b is string => !!b && b !== 'HEAD')  // Filter out HEAD pseudo-ref
+      addLog('info', `Found ${allBranches.length} branches: ${allBranches.join(', ') || '(none)'}`)
       setBranches([...new Set([branch, ...allBranches])])
 
       // Check for .lfsconfig or lfs tracking
@@ -313,17 +348,13 @@ export default function SyncView() {
     detectRepo(p)
   }
 
-  const [isBrowsing, setIsBrowsing] = useState(false)
-  const handleBrowse = async () => {
-    setIsBrowsing(true)
-    try {
-      const selected = await browseDirectory(vaultPath || undefined)
-      if (selected) confirmVaultPath(selected)
-    } catch (e) {
-      addLog('error', `Browse failed: ${e instanceof Error ? e.message : String(e)}`)
-    } finally {
-      setIsBrowsing(false)
-    }
+  const [showBrowser, setShowBrowser] = useState(false)
+  const handleBrowse = () => {
+    setShowBrowser(true)
+  }
+  const handleBrowserSelect = (path: string) => {
+    setShowBrowser(false)
+    confirmVaultPath(path)
   }
 
   // ── styles ──────────────────────────────────────────────────────────────────
@@ -428,13 +459,20 @@ export default function SyncView() {
                   placeholder="/home/you/my-notes  or  C:\Users\You\my-notes"
                   className={inputCls}
                 />
-                <button onClick={handleBrowse} disabled={isBrowsing}
+                <button onClick={handleBrowse}
                   title="Browse for vault folder"
-                  className="flex items-center gap-1.5 px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0 disabled:opacity-50">
-                  {isBrowsing ? <Loader size={14} className="animate-spin" /> : <FolderOpen size={14} />}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0">
+                  <FolderOpen size={14} />
                   Browse
                 </button>
               </div>
+              {showBrowser && (
+                <DirectoryBrowser
+                  initialPath={vaultPath || vaultPathInput || undefined}
+                  onSelect={handleBrowserSelect}
+                  onCancel={() => setShowBrowser(false)}
+                />
+              )}
               {vaultPath && (
                 <p className="text-xs text-gray-500 flex items-center gap-1">
                   <CheckCircle size={11} className="text-emerald-500" />

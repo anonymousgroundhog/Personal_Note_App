@@ -12,6 +12,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && pip3 install --no-cache-dir scapy \
     && rm -rf /var/lib/apt/lists/*
 
+# Configure git to trust mounted host directories (fixes dubious ownership error when accessing host repos)
+# This is safe for development since mounts are local; production should use proper git identity
+RUN git config --global --add safe.directory '*'
+
+# Configure SSH to accept new GitHub host keys without prompting
+RUN mkdir -p /root/.ssh && \
+    printf "Host github.com\n  StrictHostKeyChecking accept-new\n  IdentityFile /home/spsand1/.ssh/github\n  IdentityFile /home/spsand1/.ssh/id_rsa\n  IdentityFile /home/spsand1/.ssh/id_ed25519\n" > /root/.ssh/config && \
+    chmod 700 /root/.ssh && chmod 600 /root/.ssh/config
+
 # Set JAVA_HOME dynamically — works on both amd64 (Linux/Windows) and arm64 (Apple Silicon)
 RUN echo "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> /etc/profile
 ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64

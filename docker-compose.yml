@@ -7,12 +7,17 @@ services:
       - "5173:5173"
       - "3001:3001"
     volumes:
+      # Host filesystem access (for git vaults and file operations)
+      # Mounts user's home directory with same path inside/outside container
+      # HOST_HOME must be set in .env file (see .env.example)
+      - ${HOST_HOME}:${HOST_HOME}
       # Soot tools and app config persisted across rebuilds
       - soot-data:/root/.note-app-security
       - app-data:/root/.personal-note-app
       # APK upload temp dir
       - apk-tmp:/tmp
     environment:
+      # Application configuration
       - NODE_ENV=development
       - GIT_SERVER_PORT=3001
       - GIT_SERVER_HOST=localhost
