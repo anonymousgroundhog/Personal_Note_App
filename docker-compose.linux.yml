@@ -2,6 +2,5 @@ services:
   app:
     volumes:
       - ${HOME}:/root/host-home
-      - ${HOME}/Android/Sdk/platforms:/root/Android/Sdk/platforms
     environment:
       - HOST_HOME=${HOME}

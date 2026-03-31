@@ -2524,6 +2524,8 @@ sys.stdout.flush()
     if (!pathStr) return pathStr
     // Already under the mount — leave it alone
     if (pathStr.startsWith('/root/host-home')) return pathStr
+    // Container-internal paths (e.g. uploaded APKs in /tmp) — leave them alone
+    if (pathStr.startsWith('/tmp') || pathStr.startsWith('/root/') || pathStr.startsWith('/app')) return pathStr
     // Looks like an absolute host path (/home/..., /Users/..., etc.)
     // Strip the leading slash so we can join under the mount point
     if (pathStr.startsWith('/')) return join('/root/host-home', pathStr)
@@ -3020,15 +3022,16 @@ sys.stdout.flush()
 
       apkPath = toHostPath(expandPath(apkPath))
       outputDir = toHostPath(expandPath(outputDir || '/root/host-home/sootOutput'))
-      // Resolve android jars: prefer what the user specified, then host SDK mount, then
-      // the in-container downloaded platforms (works on Windows where host SDK may not exist)
+      // Resolve android jars: prefer what the user specified, then baked-in image SDK,
+      // then host SDK mount, then in-container downloaded stubs
       androidJarsPath = expandPath(androidJarsPath || '')
       if (!androidJarsPath || !existsSync(androidJarsPath)) {
         const candidates = [
+          '/opt/android-sdk/platforms',
           '/root/Android/Sdk/platforms',
           PLATFORMS_INSTALL_DIR,
         ]
-        androidJarsPath = candidates.find(p => existsSync(p) && readdirSync(p).length > 0) || androidJarsPath || '/root/Android/Sdk/platforms'
+        androidJarsPath = candidates.find(p => existsSync(p) && readdirSync(p).length > 0) || androidJarsPath || '/opt/android-sdk/platforms'
       }
 
       if (!existsSync(apkPath)) {
@@ -3461,6 +3464,10 @@ sys.stdout.flush()
     const latestJarPath = join(SOOT_INSTALL_DIR, `soot-all-${latestVersion}.jar`)
     const sootInstalled = existsSync(latestJarPath)
 
+    // Detect the android platforms directory the same way soot/run does
+    const platformsCandidates = ['/opt/android-sdk/platforms', '/root/Android/Sdk/platforms', PLATFORMS_INSTALL_DIR]
+    const detectedPlatformsPath = platformsCandidates.find(p => existsSync(p) && readdirSync(p).length > 0) || null
+
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       sootVersions: SOOT_VERSIONS,
@@ -3469,6 +3476,7 @@ sys.stdout.flush()
       platformsInstallDir: PLATFORMS_INSTALL_DIR,
       sootInstalled,
       latestSootPath: sootInstalled ? latestJarPath : null,
+      detectedPlatformsPath,
     }))
     return
   }

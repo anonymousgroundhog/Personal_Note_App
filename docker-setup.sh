@@ -12,18 +12,6 @@ fi
 
 echo "Real user home: $REAL_HOME"
 
-# Detect Android SDK
-if [ -d "$REAL_HOME/Android/Sdk" ]; then
-  SDK="$REAL_HOME/Android/Sdk"
-elif [ -d "$REAL_HOME/Library/Android/sdk" ]; then
-  SDK="$REAL_HOME/Library/Android/sdk"
-elif [ -n "$ANDROID_HOME" ]; then
-  SDK="$ANDROID_HOME"
-else
-  SDK="$REAL_HOME/Android/Sdk"
-  echo "Warning: Android SDK not found at $SDK. APK analysis may not work."
-fi
-
 # Detect notes directory
 if [ -d "$REAL_HOME/Notes" ]; then
   NOTES="$REAL_HOME/Notes"
@@ -35,7 +23,7 @@ fi
 echo "Host paths:"
 echo "  HOME:        $REAL_HOME"
 echo "  Notes:       $NOTES"
-echo "  Android SDK: $SDK"
+echo "  Android platforms: baked into Docker image at /opt/android-sdk/platforms"
 echo ""
 
 # Write override file with literal paths — no variable expansion at runtime
@@ -45,7 +33,6 @@ services:
     volumes:
       - $REAL_HOME:/root/host-home
       - $NOTES:/root/Notes
-      - $SDK/platforms:/root/Android/Sdk/platforms
     environment:
       - HOST_HOME=$REAL_HOME
 EOF
