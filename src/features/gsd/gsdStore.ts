@@ -54,6 +54,9 @@ interface GsdState {
 
   // Gantt sync
   syncFromGantt: (ganttProjects: GanttProject[]) => { newProjects: number; newItems: number }
+
+  // Vault sync — load from vault (source of truth when open)
+  hydrate: (data: { items: GsdItem[]; projects: GsdProject[]; contexts: string[] }) => void
 }
 
 const STORAGE_KEY = 'gsd_data'
@@ -241,6 +244,16 @@ export const useGsdStore = create<GsdState>((set, get) => {
 
       set(persist({ projects: updatedProjects, items: updatedItems }))
       return { newProjects, newItems }
+    },
+
+    hydrate: (data) => {
+      // Load from vault — validate shape minimally
+      const items = Array.isArray(data.items) ? data.items : []
+      const projects = Array.isArray(data.projects) ? data.projects : []
+      const contexts = Array.isArray(data.contexts) ? data.contexts : []
+      // Persist to localStorage too so fallback remains in sync
+      save({ items, projects, contexts })
+      set({ items, projects, contexts })
     },
   }
 })
