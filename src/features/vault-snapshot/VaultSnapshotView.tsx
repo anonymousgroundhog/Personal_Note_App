@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { Save, RefreshCw, Trash2, FolderOpen } from 'lucide-react'
 import {
-  scanAllPaths,
+  scanDirectories,
   diffSnapshots,
   loadSnapshots,
   createSnapshot,
@@ -83,7 +83,7 @@ export default function VaultSnapshotView() {
     setScanning(true)
 
     try {
-      const files = await scanAllPaths(chosenDir)
+      const files = await scanDirectories(chosenDir)
       setScannedCount(files.length)
       await createSnapshot(rootHandle, finalLabel, chosenDirName, files)
       setLabel('')
@@ -133,7 +133,7 @@ export default function VaultSnapshotView() {
     setCompareError('')
     setComparing(true)
     try {
-      const current = await scanAllPaths(compareDir)
+      const current = await scanDirectories(compareDir)
       const diff = diffSnapshots(snapshot.files, current)
       setDiffResult(diff)
     } catch (err) {
@@ -211,7 +211,7 @@ export default function VaultSnapshotView() {
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Save Snapshot</h2>
                 <p className="text-gray-600 dark:text-gray-400 mb-6">
-                  Choose any directory to create a snapshot of its file structure. The snapshot will be saved to your vault.
+                  Choose any directory to create a snapshot of its folder structure. The snapshot will be saved to your vault.
                 </p>
 
                 {rootHandle && (
@@ -279,7 +279,7 @@ export default function VaultSnapshotView() {
 
                     {scannedCount !== null && (
                       <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg text-green-700 dark:text-green-300 text-sm">
-                        ✓ Saved! Found <span className="font-semibold">{scannedCount}</span> files in {chosenDirName}.
+                        ✓ Saved! Found <span className="font-semibold">{scannedCount}</span> director{scannedCount === 1 ? 'y' : 'ies'} in {chosenDirName}.
                       </div>
                     )}
 
@@ -322,7 +322,7 @@ export default function VaultSnapshotView() {
                         <option value="">-- Choose a snapshot --</option>
                         {snapshots.snapshots.map(s => (
                           <option key={s.label} value={s.label}>
-                            {s.label} • {new Date(s.timestamp).toLocaleString()} ({s.files.length} files)
+                            {s.label} • {new Date(s.timestamp).toLocaleString()} ({s.files.length} director{s.files.length === 1 ? 'y' : 'ies'})
                           </option>
                         ))}
                       </select>
@@ -343,7 +343,7 @@ export default function VaultSnapshotView() {
                             <div className="font-medium text-gray-900 dark:text-white">{snapshot.label}</div>
                             <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-0.5">
                               <div>📁 From: {snapshot.dirName}</div>
-                              <div>📊 Files: {snapshot.files.length}</div>
+                              <div>📂 Directories: {snapshot.files.length}</div>
                               <div>🕒 {new Date(snapshot.timestamp).toLocaleString()}</div>
                             </div>
                           </div>
@@ -426,7 +426,7 @@ export default function VaultSnapshotView() {
                   {/* Added */}
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-green-600 dark:text-green-400 font-semibold">+ Added</span>
+                      <span className="text-green-600 dark:text-green-400 font-semibold">+ Added Directories</span>
                       <span className="text-sm text-gray-500">({diffResult.added.length})</span>
                     </div>
                     {diffResult.added.length > 0 ? (
@@ -447,7 +447,7 @@ export default function VaultSnapshotView() {
                   {/* Removed */}
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-red-600 dark:text-red-400 font-semibold">- Removed</span>
+                      <span className="text-red-600 dark:text-red-400 font-semibold">- Removed Directories</span>
                       <span className="text-sm text-gray-500">({diffResult.removed.length})</span>
                     </div>
                     {diffResult.removed.length > 0 ? (
@@ -468,7 +468,7 @@ export default function VaultSnapshotView() {
                   {/* Unchanged */}
                   <div className="p-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
                     <p className="text-gray-700 dark:text-gray-300 text-sm">
-                      <span className="font-semibold">{diffResult.unchanged.length}</span> files unchanged
+                      <span className="font-semibold">{diffResult.unchanged.length}</span> director{diffResult.unchanged.length === 1 ? 'y' : 'ies'} unchanged
                     </p>
                   </div>
                 </div>
