@@ -44,3 +44,38 @@ latest.yml
 
 # Node modules
 node_modules/
+
+# Claude Code local settings and cache
+.claude/
+
+# OS-specific files
+Thumbs.db
+*.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE and editor files
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Build and cache directories
+.turbo/
+.vite/
+
+# Local environment and configuration
+.env.local.backup
+settings.local.json
+
+# macOS
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+ehthumbs.db
+.TemporaryItems
