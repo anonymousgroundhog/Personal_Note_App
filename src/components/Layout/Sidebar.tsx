@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap, BookOpen, Settings, GitCompare } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap, BookOpen, Settings, GitCompare, GitBranch } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -182,6 +182,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section:
   { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes',           section: 'Core' },
   { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags',            section: 'Core' },
   { view: 'sync',     icon: <Github size={18} />,       label: 'Sync',            section: 'Core' },
+  { view: 'repos',    icon: <GitBranch size={18} />,    label: 'Repos',           section: 'Core' },
   { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams',        section: 'Tools' },
   { view: 'code',     icon: <Code2 size={18} />,        label: 'Code',            section: 'Tools' },
   { view: 'web',      icon: <Globe size={18} />,         label: 'Web',             section: 'Tools' },

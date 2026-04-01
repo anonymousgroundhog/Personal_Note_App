@@ -3,6 +3,7 @@ import Sidebar from './components/Layout/Sidebar'
 import EditorView from './features/editor/EditorView'
 import TagBrowser from './features/tags/TagBrowser'
 import SyncView from './features/sync/SyncView'
+import ReposView from './features/repos/ReposView'
 import DiagramEditor from './features/diagram/DiagramEditor'
 import AiView from './features/ai/AiView'
 import GsdView from './features/gsd/GsdView'
@@ -80,6 +81,8 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden h-full">
         {activeView === 'sync' ? (
           <SyncView />
+        ) : activeView === 'repos' ? (
+          <ReposView />
         ) : activeView === 'diagram' ? (
           <DiagramEditor />
         ) : activeView === 'ai' ? (
