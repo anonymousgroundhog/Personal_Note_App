@@ -24,7 +24,7 @@ services:
       - VITE_DOCKER=true
       - HOST_HOME=${HOME}
     stop_signal: SIGTERM
-    stop_grace_period: 10s
+    stop_grace_period: 30s
 
 volumes:
   soot-data:
