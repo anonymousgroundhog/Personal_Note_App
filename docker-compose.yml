@@ -2,6 +2,9 @@ services:
   app:
     build:
       context: .
+    ports:
+      - "5173:5173"
+      - "3001:3001"
     volumes:
       # Soot tools and app config persisted across rebuilds
       - soot-data:/root/.note-app-security
@@ -11,6 +14,8 @@ services:
       # Host home directory — ${HOME} is expanded by Docker Compose from the host shell,
       # so this works automatically on any Linux distro without a setup script.
       - ${HOME}:/root/host-home
+      # SSH agent forwarding for git operations
+      - $SSH_AUTH_SOCK:/ssh-agent
     environment:
       - NODE_ENV=development
       - GIT_SERVER_PORT=3001
@@ -21,6 +26,7 @@ services:
       - ANDROID_SDK_ROOT=/root/Android/Sdk
       - VITE_DOCKER=true
       - HOST_HOME=${HOME}
+      - SSH_AUTH_SOCK=/ssh-agent
     stop_signal: SIGTERM
     stop_grace_period: 30s
 
