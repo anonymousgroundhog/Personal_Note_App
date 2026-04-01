@@ -3,12 +3,20 @@ import { readFile, writeFile, getFileHandle } from '../../lib/fs/fileSystemApi'
 export interface SnapshotEntry {
   label: string
   timestamp: string
+  dirName: string
   files: string[]
 }
 
 export interface SnapshotFile {
   version: 1
   snapshots: SnapshotEntry[]
+}
+
+/**
+ * Get the directory name from a FileSystemDirectoryHandle
+ */
+export function getDirectoryName(handle: FileSystemDirectoryHandle): string {
+  return (handle as unknown as { name?: string }).name || 'Unknown'
 }
 
 /**
@@ -80,6 +88,7 @@ export async function saveSnapshots(
 export async function createSnapshot(
   rootHandle: FileSystemDirectoryHandle,
   label: string,
+  dirName: string,
   files: string[]
 ): Promise<void> {
   const snapshotFile = await loadSnapshots(rootHandle)
@@ -87,7 +96,7 @@ export async function createSnapshot(
 
   // Remove existing snapshot with same label, or add new one
   snapshotFile.snapshots = snapshotFile.snapshots.filter(s => s.label !== label)
-  snapshotFile.snapshots.push({ label, timestamp, files })
+  snapshotFile.snapshots.push({ label, timestamp, dirName, files })
 
   await saveSnapshots(rootHandle, snapshotFile)
 }
