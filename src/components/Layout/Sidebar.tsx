@@ -1,5 +1,5 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap, BookOpen } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
@@ -193,6 +193,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section:
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
   { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility',  section: 'Accessibility' },
   { view: 'academia', icon: <GraduationCap size={18} />, label: 'Teaching, Research & Service', section: 'Academia Related' },
+  { view: 'research', icon: <BookOpen size={18} />, label: 'Research References', section: 'Academia Related' },
   { view: 'help', icon: <HelpCircle size={18} />,       label: 'Help',            section: 'Help' },
 ]
 

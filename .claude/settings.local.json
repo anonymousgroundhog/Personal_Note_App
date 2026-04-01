@@ -120,7 +120,10 @@
       "Bash(dos2unix --version)",
       "Bash(apt-cache show:*)",
       "Bash(git commit:*)",
-      "Bash(defaults\" option in modal. Escape key or clicking backdrop closes modal.:*)"
+      "Bash(defaults\" option in modal. Escape key or clicking backdrop closes modal.:*)",
+      "Bash(find /home/spsand1/Documents/Projects/GitHub/Personal_Note_App -name *git-server* -o -name git-server*)",
+      "Bash(pkill -f \"node git-server\")",
+      "Bash(curl -s -X POST http://localhost:3001/git -H 'Content-Type: application/json' -d '{\"\"\"\"cwd\"\"\"\":\"\"\"\"/home/spsand1/Documents/Projects/anonymousgroundhog.github.io\"\"\"\",\"\"\"\"args\"\"\"\":[\"\"\"\"rev-parse\"\"\"\",\"\"\"\"--is-inside-work-tree\"\"\"\"]}')"
     ]
   }
 }

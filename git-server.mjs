@@ -37,6 +37,28 @@ const DEFAULT_PORT = 3001
 const PORT = parseInt(process.env.GIT_SERVER_PORT || DEFAULT_PORT, 10)
 const execFileAsync = promisify(execFile)
 
+// ── Docker Path Remapping ──────────────────────────────────────────────────────────
+// When running in Docker, the host home directory is mounted at /root/host-home
+// but the app sends paths from the host (e.g., /home/username/...).
+// This function remaps those paths to the Docker mount point.
+const HOST_HOME = process.env.HOST_HOME || ''
+const IN_DOCKER = existsSync('/.dockerenv') || process.env.VITE_DOCKER === 'true'
+
+function remapDockerPath(hostPath) {
+  if (!IN_DOCKER || !HOST_HOME) return hostPath
+  // Example: /home/spsand1/Documents/... → /root/host-home/Documents/...
+  const hostHomeBasename = HOST_HOME.split('/').filter(Boolean).pop()
+  if (hostPath.includes(hostHomeBasename)) {
+    // Replace the host home path with the Docker mount point
+    return hostPath.replace(new RegExp(`^.*${hostHomeBasename}`), `/root/host-home`)
+  }
+  return hostPath
+}
+
+if (IN_DOCKER) {
+  console.log(`[docker] Running in Docker with HOST_HOME=${HOST_HOME}`)
+}
+
 // ── Security Suite Configuration ───────────────────────────────────────────────────
 const SECURITY_DIR = join(homedir(), '.note-app-security')
 const SOOT_INSTALL_DIR = join(SECURITY_DIR, 'soot')
@@ -187,7 +209,22 @@ function validateArgs(args) {
 }
 
 // ── Run git, collect output ────────────────────────────────────────────────────
-function runGit(cwd, args, onData, onEnd) {
+async function runGit(cwd, args, onData, onEnd) {
+  // Pre-configure git to trust this directory (needed in Docker with mixed ownership)
+  // This handles the "detected dubious ownership" error
+  if (IN_DOCKER) {
+    try {
+      await new Promise((resolve) => {
+        const proc = spawn('git', ['config', '--global', '--add', 'safe.directory', cwd], {
+          stdio: 'ignore',
+        })
+        proc.on('exit', resolve)
+      })
+    } catch (e) {
+      // Ignore errors from pre-config
+    }
+  }
+
   const proc = spawn('git', args, {
     cwd,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
@@ -268,7 +305,9 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/browse/ls') {
     setCors(res)
     try {
-      const reqPath = resolve(url.searchParams.get('path') || homedir())
+      let reqPath = resolve(url.searchParams.get('path') || homedir())
+      // Apply Docker path remapping if needed
+      reqPath = remapDockerPath(reqPath)
       const entries = readdirSync(reqPath, { withFileTypes: true })
       const dirs = entries
         .filter(e => e.isDirectory() && !e.name.startsWith('.'))
@@ -290,15 +329,40 @@ const server = createServer(async (req, res) => {
     try {
       const body = await parseBody(req)
       const args = validateArgs(body.args)
-      const cwd = resolve(body.cwd || '.')
-      if (!existsSync(cwd)) throw new Error(`directory not found: ${cwd}`)
+      let cwd = resolve(body.cwd || '.')
+
+      // If path doesn't exist, try without trailing slash
+      if (!existsSync(cwd) && cwd.endsWith('/')) {
+        cwd = cwd.slice(0, -1)
+      }
+      // If still doesn't exist, try with home dir expansion
+      if (!existsSync(cwd) && body.cwd?.startsWith('~')) {
+        cwd = resolve(body.cwd.replace('~', homedir()))
+      }
+
+      // Apply Docker path remapping if running in container
+      const originalCwd = cwd
+      cwd = remapDockerPath(cwd)
+      if (cwd !== originalCwd) {
+        console.log(`[/git] Docker path remapping: ${originalCwd} → ${cwd}`)
+      }
+
+      // Try to run git anyway (existsSync might fail in containers, but git might work)
+      // Log the issue if existsSync fails but we'll attempt the command
+      const cwdExists = existsSync(cwd)
+      if (!cwdExists) {
+        console.warn(`[/git] Directory check failed for ${cwd}, but attempting git command anyway`)
+      }
+
       runGit(cwd, args, null, (result) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
       })
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: e.message }))
+      const response = { error: e.message }
+      if (e.details) response.details = e.details
+      res.end(JSON.stringify(response))
     }
     return
   }
@@ -308,8 +372,29 @@ const server = createServer(async (req, res) => {
     try {
       const body = await parseBody(req)
       const args = validateArgs(body.args)
-      const cwd = resolve(body.cwd || '.')
-      if (!existsSync(cwd)) throw new Error(`directory not found: ${cwd}`)
+      let cwd = resolve(body.cwd || '.')
+
+      // If path doesn't exist, try without trailing slash
+      if (!existsSync(cwd) && cwd.endsWith('/')) {
+        cwd = cwd.slice(0, -1)
+      }
+      // If still doesn't exist, try with home dir expansion
+      if (!existsSync(cwd) && body.cwd?.startsWith('~')) {
+        cwd = resolve(body.cwd.replace('~', homedir()))
+      }
+
+      // Apply Docker path remapping if running in container
+      const originalCwd = cwd
+      cwd = remapDockerPath(cwd)
+      if (cwd !== originalCwd) {
+        console.log(`[/git/stream] Docker path remapping: ${originalCwd} → ${cwd}`)
+      }
+
+      // Try to run git anyway (existsSync might fail in containers, but git might work)
+      const cwdExists = existsSync(cwd)
+      if (!cwdExists) {
+        console.warn(`[/git/stream] Directory check failed for ${cwd}, but attempting git command anyway`)
+      }
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',

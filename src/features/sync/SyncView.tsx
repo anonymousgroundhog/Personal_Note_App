@@ -96,8 +96,26 @@ export default function SyncView() {
     setStatus('checking')
     try {
       // Check if inside a git repo
-      const rev = await git(path, ['rev-parse', '--is-inside-work-tree'])
-      if (rev.code !== 0 || rev.stdout.trim() !== 'true') {
+      const rev = await git(path, ['rev-parse', '--is-inside-work-tree']).catch(err => {
+        // If we get directory not found, log detailed diagnostic info
+        console.error('git command failed:', err)
+        if (err.message?.includes('directory not found')) {
+          addLog('error', `Path check failed: ${path}. This might be a permissions or environment issue. Try:`)
+          addLog('error', `1. Closing the app completely (Ctrl+C in terminal)`)
+          addLog('error', `2. Waiting 5 seconds`)
+          addLog('error', `3. Restarting the app`)
+        }
+        throw err
+      })
+      if (rev.code !== 0) {
+        if (rev.stderr) {
+          addLog('error', `Git error: ${rev.stderr}`)
+        }
+        setIsRepo(false)
+        setStatus('idle')
+        return
+      }
+      if (rev.stdout.trim() !== 'true') {
         setIsRepo(false)
         setStatus('idle')
         return
@@ -320,7 +338,11 @@ export default function SyncView() {
       const selected = await browseDirectory(vaultPath || undefined)
       if (selected) confirmVaultPath(selected)
     } catch (e) {
-      addLog('error', `Browse failed: ${e instanceof Error ? e.message : String(e)}`)
+      const errMsg = e instanceof Error ? e.message : String(e)
+      addLog('error', `Browse failed: ${errMsg}`)
+      if (errMsg.includes('zenity') || errMsg.includes('kdialog')) {
+        addLog('info', 'Running in Docker? Use manual path entry instead. Paste your vault path in the input field above.')
+      }
     } finally {
       setIsBrowsing(false)
     }
