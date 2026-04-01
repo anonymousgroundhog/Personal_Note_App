@@ -399,7 +399,7 @@ function CFGVisualization({ cfg }: { cfg: MethodCFG }) {
 
 export default function SootCompilerView() {
   const [apkPath, setApkPath] = useState('')
-  const [outputDir, setOutputDir] = useState('/root/host-home/sootOutput')
+  const [outputDir, setOutputDir] = useState('')
   const [androidJarsPath, setAndroidJarsPath] = useState('')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
@@ -414,6 +414,16 @@ export default function SootCompilerView() {
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   const apkFileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch('/security/host-info')
+      .then(r => r.json())
+      .then(d => {
+        const mount = d.containerMount || '/root/host-home'
+        setOutputDir(`${mount}/sootOutput`)
+      })
+      .catch(() => { setOutputDir('/root/host-home/sootOutput') })
+  }, [])
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -616,7 +626,6 @@ export default function SootCompilerView() {
         title="Select APK File"
         dirOnly={false}
         fileFilter=".apk"
-        startPath="/root/host-home"
       />
       <PathPickerModal
         isOpen={pickerOpen === 'output'}
@@ -624,7 +633,6 @@ export default function SootCompilerView() {
         onSelect={onPickerSelect}
         title="Select Output Directory"
         dirOnly={true}
-        startPath="/root/host-home"
       />
       <PathPickerModal
         isOpen={pickerOpen === 'jars'}
@@ -632,7 +640,6 @@ export default function SootCompilerView() {
         onSelect={onPickerSelect}
         title="Select Android Platforms Directory"
         dirOnly={true}
-        startPath="/root/host-home"
       />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
 

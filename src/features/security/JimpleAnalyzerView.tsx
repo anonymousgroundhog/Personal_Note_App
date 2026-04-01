@@ -560,7 +560,6 @@ export default function JimpleAnalyzerView() {
         onSelect={path => { setFolderPath(path); setPickerOpen(false) }}
         title="Select Jimple Folder"
         dirOnly={true}
-        startPath="/root/host-home"
       />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
         {/* Folder Path Input */}

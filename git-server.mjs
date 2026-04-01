@@ -272,6 +272,11 @@ async function browseDirectory(startPath) {
   })
 }
 
+// Prevent a single timed-out or failed AI request from crashing the whole server.
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection (continuing):', reason?.message ?? reason)
+})
+
 // ── HTTP server ────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   setCors(res)
@@ -305,7 +310,13 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/browse/ls') {
     setCors(res)
     try {
-      let reqPath = resolve(url.searchParams.get('path') || homedir())
+      const rawPath = url.searchParams.get('path')
+      // When no path given, default to the host-home mount in Docker so the
+      // browser picker opens directly in the user's home directory on the host.
+      const defaultPath = (IN_DOCKER && !rawPath && existsSync('/root/host-home'))
+        ? '/root/host-home'
+        : homedir()
+      let reqPath = resolve(rawPath || defaultPath)
       // Apply Docker path remapping if needed
       reqPath = remapDockerPath(reqPath)
       const entries = readdirSync(reqPath, { withFileTypes: true })
@@ -658,12 +669,12 @@ const server = createServer(async (req, res) => {
       for (const path of ['/api/models', '/v1/models']) {
         let upstream
         try {
-          upstream = await fetch(`${base}${path}`, {
-            headers,
-            signal: AbortSignal.timeout(10000),
-          })
+          const ctrl = new AbortController()
+          const t = setTimeout(() => ctrl.abort(), 10000)
+          upstream = await fetch(`${base}${path}`, { headers, signal: ctrl.signal })
+          clearTimeout(t)
         } catch (e) {
-          lastErr = e.message
+          lastErr = e.name === 'AbortError' ? 'connection timeout' : e.message
           continue
         }
         if (upstream.status === 401 || upstream.status === 403) {
@@ -704,7 +715,12 @@ const server = createServer(async (req, res) => {
 
     for (const [path, isOllama] of chatPaths) {
       let r
-      const connectTimeout = AbortSignal.timeout(15000)
+      // Use a plain AbortController so we can cancel the connect attempt after
+      // 30s without the signal firing again mid-stream (AbortSignal.timeout fires
+      // at wall-clock time regardless of whether streaming has started, causing
+      // an unhandled DOMException that crashes the server).
+      const connectController = new AbortController()
+      const connectTimer = setTimeout(() => connectController.abort(), 30000)
 
       // Ollama /api/chat uses a different request shape
       let reqBody
@@ -723,10 +739,12 @@ const server = createServer(async (req, res) => {
           method: 'POST',
           headers,
           body: reqBody,
-          signal: connectTimeout,
+          signal: connectController.signal,
         })
+        clearTimeout(connectTimer)
       } catch (e) {
-        lastChatErr = e.name === 'TimeoutError' ? `connection timeout on ${path}` : e.message
+        clearTimeout(connectTimer)
+        lastChatErr = e.name === 'AbortError' ? `connection timeout on ${path}` : e.message
         continue
       }
       if (r.status === 401 || r.status === 403) {

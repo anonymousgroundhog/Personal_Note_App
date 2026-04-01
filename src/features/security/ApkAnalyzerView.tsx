@@ -8,7 +8,7 @@ const CONTAINER_MOUNT = '/root/host-home'
 
 export default function ApkAnalyzerView() {
   const [apkPath, setApkPath] = useState('')
-  const [outputDir, setOutputDir] = useState('/root/host-home/apktool_output')
+  const [outputDir, setOutputDir] = useState('')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [pickerOpen, setPickerOpen] = useState<'apk' | 'output' | null>(null)
@@ -22,7 +22,11 @@ export default function ApkAnalyzerView() {
   useEffect(() => {
     fetch('/security/host-info')
       .then(r => r.json())
-      .then(d => { if (d.hostHome) setHostHome(d.hostHome) })
+      .then(d => {
+        if (d.hostHome) setHostHome(d.hostHome)
+        const mount = d.containerMount || '/root/host-home'
+        setOutputDir(`${mount}/apktool_output`)
+      })
       .catch(() => {})
   }, [])
 
@@ -162,7 +166,6 @@ export default function ApkAnalyzerView() {
         title="Select APK File"
         dirOnly={false}
         fileFilter=".apk"
-        startPath="/root/host-home"
       />
       <PathPickerModal
         isOpen={pickerOpen === 'output'}
@@ -170,7 +173,6 @@ export default function ApkAnalyzerView() {
         onSelect={onPickerSelect}
         title="Select Output Directory"
         dirOnly={true}
-        startPath="/root/host-home"
       />
 
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
