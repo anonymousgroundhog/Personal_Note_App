@@ -1,11 +1,17 @@
 import { create } from 'zustand'
 import type { Reference, Library, PdfAnnotation } from './types'
 
+export interface ResearchConfig {
+  dataPath: string          // e.g., 'research/data.json'
+  pdfPath: string           // e.g., 'research/pdfs'
+}
+
 interface ResearchState {
   references: Reference[]
   libraries: Library[]
   annotations: PdfAnnotation[]
   selectedLibraryId: string | null
+  config: ResearchConfig
   addReference: (partial: Omit<Reference, 'id' | 'createdAt' | 'updatedAt'>) => Reference
   updateReference: (id: string, partial: Partial<Reference>) => void
   deleteReference: (id: string) => void
@@ -23,6 +29,7 @@ interface ResearchState {
   setReferences: (references: Reference[]) => void
   setLibraries: (libraries: Library[]) => void
   setAnnotations: (annotations: PdfAnnotation[]) => void
+  setConfig: (config: Partial<ResearchConfig>) => void
 }
 
 function generateId(prefix: string): string {
@@ -35,6 +42,10 @@ export const useResearchStore = create<ResearchState>((set) => {
     libraries: [],
     annotations: [],
     selectedLibraryId: null,
+    config: {
+      dataPath: 'research/data.json',
+      pdfPath: 'research/pdfs',
+    },
 
     addReference: (partial) => {
       const reference: Reference = {
@@ -166,6 +177,12 @@ export const useResearchStore = create<ResearchState>((set) => {
 
     setAnnotations: (annotations) => {
       set({ annotations })
+    },
+
+    setConfig: (partialConfig) => {
+      set((s) => ({
+        config: { ...s.config, ...partialConfig },
+      }))
     },
   }
 })

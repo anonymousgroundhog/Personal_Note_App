@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useGsdStore } from './gsdStore'
 
@@ -32,7 +32,7 @@ export function useGsdVaultSync() {
     return () => { if (writeTimerRef.current) clearTimeout(writeTimerRef.current) }
   }, [])
 
-  function scheduleWrite() {
+  const scheduleWrite = useCallback(() => {
     if (!hasVault) return
     if (writeTimerRef.current) clearTimeout(writeTimerRef.current)
     writeTimerRef.current = setTimeout(() => {
@@ -49,7 +49,7 @@ export function useGsdVaultSync() {
       ].join('\n')
       saveNote(GSD_DATA_PATH, content).catch(console.error)
     }, 600)
-  }
+  }, [hasVault, saveNote])
 
   return { scheduleWrite }
 }

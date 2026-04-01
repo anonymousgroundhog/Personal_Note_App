@@ -26,7 +26,7 @@ const TYPE_LABELS: Record<Reference['type'], string> = {
 
 
 export default function ReferenceDetail({ referenceId, onEdit, onDelete }: Props) {
-  const { getReference, updateReference, getAnnotationsForRef, addAnnotation, deleteAnnotation, libraries, addReferenceToLibrary, removeReferenceFromLibrary } = useResearchStore()
+  const { getReference, updateReference, getAnnotationsForRef, addAnnotation, deleteAnnotation, libraries, addReferenceToLibrary, removeReferenceFromLibrary, config } = useResearchStore()
   const { rootHandle, fallbackMode } = useVaultStore()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isAttaching, setIsAttaching] = useState(false)
@@ -52,12 +52,13 @@ export default function ReferenceDetail({ referenceId, onEdit, onDelete }: Props
     setIsAttaching(true)
     setAttachError(null)
     try {
-      const handle = await getFileHandle(rootHandle, `research/pdfs/${reference.id}.pdf`, true)
+      const pdfFilePath = `${config.pdfPath}/${reference.id}.pdf`
+      const handle = await getFileHandle(rootHandle, pdfFilePath, true)
       const arrayBuffer = await file.arrayBuffer()
       await writeBinaryFile(handle, new Blob([arrayBuffer]))
 
       updateReference(reference.id, {
-        pdfPath: `research/pdfs/${reference.id}.pdf`,
+        pdfPath: pdfFilePath,
         updatedAt: Date.now(),
       })
     } catch (err) {

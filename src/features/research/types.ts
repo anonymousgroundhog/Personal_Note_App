@@ -14,12 +14,37 @@ export interface Reference {
   tags: string[]
   pdfPath?: string          // vault-relative: 'research/pdfs/<id>.pdf'
 
-  // Journal-specific fields
-  journal?: string
+  // Series Data
+  series?: string
+  seriesTitle?: string
+  seriesText?: string
+  seriesNumber?: string
+
+  // Identifiers
+  issn?: string
+  isbn?: string
+  journalAbbr?: string      // journal abbreviation
+
+  // Physical/ID
+  pages?: string
+  language?: string
   volume?: string
   issue?: string
-  pages?: string
-  issn?: string
+
+  // Digital/Locational
+  shortTitle?: string
+  accessed?: string         // when you accessed it (ISO date)
+  archive?: string          // archived location
+  locInArchive?: string     // location in archive
+
+  // Management
+  libraryTags?: string      // additional tags for organization
+  callNumber?: string
+  rights?: string
+  extra?: string
+
+  // Journal-specific fields
+  journal?: string
 
   // Conference-specific fields
   booktitle?: string
@@ -28,15 +53,13 @@ export interface Reference {
 
   // Book-specific fields
   publisher?: string
-  isbn?: string
 
   // Webpage-specific fields
   website?: string
-  accessDate?: string       // when you accessed it
+  accessDate?: string       // deprecated, use 'accessed' instead
 
   // General fields
   keywords?: string         // comma-separated
-  language?: string
 
   createdAt: number
   updatedAt: number

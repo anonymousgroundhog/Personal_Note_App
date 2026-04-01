@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { X, Trash2, Clipboard } from 'lucide-react'
+import { X, Trash2, Clipboard, ChevronDown } from 'lucide-react'
 import { useResearchStore } from './researchStore'
 import { parseBibtex } from './bibtexUtils'
 import type { Reference, ReferenceType } from './types'
@@ -21,6 +21,55 @@ const TYPE_LABELS: Record<ReferenceType, string> = {
   thesis: 'Thesis/Dissertation',
 }
 
+interface FormSectionProps {
+  title: string
+  children: React.ReactNode
+  defaultOpen?: boolean
+}
+
+function FormSection({ title, children, defaultOpen = true }: FormSectionProps) {
+  const [isOpen, setIsOpen] = useState(defaultOpen)
+  return (
+    <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between px-0 py-1.5 text-xs font-semibold text-gray-600 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-300 transition-colors"
+      >
+        {title}
+        <ChevronDown size={14} className={`transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+      </button>
+      {isOpen && <div className="space-y-3 pt-3">{children}</div>}
+    </div>
+  )
+}
+
+interface FieldInputProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  placeholder?: string
+  type?: string
+  optional?: boolean
+}
+
+function FieldInput({ label, value, onChange, placeholder, type = 'text', optional = true }: FieldInputProps) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+        {label}
+        {!optional && <span className="text-red-500">*</span>}
+      </label>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
+      />
+    </div>
+  )
+}
+
 export default function ReferenceForm({ reference, onClose }: Props) {
   const { addReference, updateReference, deleteReference } = useResearchStore()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -28,31 +77,57 @@ export default function ReferenceForm({ reference, onClose }: Props) {
   const [bibtexInput, setBibtexInput] = useState('')
   const [bibtexError, setBibtexError] = useState<string | null>(null)
 
+  // Core Info
   const [title, setTitle] = useState(reference?.title ?? '')
   const [authors, setAuthors] = useState(reference?.authors ?? '')
   const [year, setYear] = useState(reference?.year?.toString() ?? '')
   const [type, setType] = useState<ReferenceType>(reference?.type ?? 'journal')
   const [source, setSource] = useState(reference?.source ?? '')
-  const [url, setUrl] = useState(reference?.url ?? '')
+
+  // Series Data
+  const [series, setSeries] = useState(reference?.series ?? '')
+  const [seriesTitle, setSeriesTitle] = useState(reference?.seriesTitle ?? '')
+  const [seriesText, setSeriesText] = useState(reference?.seriesText ?? '')
+  const [seriesNumber, setSeriesNumber] = useState(reference?.seriesNumber ?? '')
+
+  // Identifiers
   const [doi, setDoi] = useState(reference?.doi ?? '')
+  const [issn, setIssn] = useState(reference?.issn ?? '')
+  const [isbn, setIsbn] = useState(reference?.isbn ?? '')
+  const [journalAbbr, setJournalAbbr] = useState(reference?.journalAbbr ?? '')
+
+  // Physical/ID
+  const [pages, setPages] = useState(reference?.pages ?? '')
+  const [language, setLanguage] = useState(reference?.language ?? '')
+  const [volume, setVolume] = useState(reference?.volume ?? '')
+  const [issue, setIssue] = useState(reference?.issue ?? '')
+
+  // Digital/Locational
+  const [shortTitle, setShortTitle] = useState(reference?.shortTitle ?? '')
+  const [url, setUrl] = useState(reference?.url ?? '')
+  const [accessed, setAccessed] = useState(reference?.accessed ?? '')
+  const [archive, setArchive] = useState(reference?.archive ?? '')
+  const [locInArchive, setLocInArchive] = useState(reference?.locInArchive ?? '')
+
+  // Management
+  const [libraryTags, setLibraryTags] = useState(reference?.libraryTags ?? '')
+  const [callNumber, setCallNumber] = useState(reference?.callNumber ?? '')
+  const [rights, setRights] = useState(reference?.rights ?? '')
+  const [extra, setExtra] = useState(reference?.extra ?? '')
+
+  // Type-specific fields
+  const [journal, setJournal] = useState(reference?.journal ?? '')
+  const [booktitle, setBooktitle] = useState(reference?.booktitle ?? '')
+  const [conference, setConference] = useState(reference?.conference ?? '')
+  const [address, setAddress] = useState(reference?.address ?? '')
+  const [publisher, setPublisher] = useState(reference?.publisher ?? '')
+
+  // General fields
+  const [keywords, setKeywords] = useState(reference?.keywords ?? '')
   const [abstract, setAbstract] = useState(reference?.abstract ?? '')
   const [notes, setNotes] = useState(reference?.notes ?? '')
   const [tagInput, setTagInput] = useState('')
   const [tags, setTags] = useState(reference?.tags ?? [])
-
-  // Type-specific fields
-  const [journal, setJournal] = useState(reference?.journal ?? '')
-  const [volume, setVolume] = useState(reference?.volume ?? '')
-  const [issue, setIssue] = useState(reference?.issue ?? '')
-  const [pages, setPages] = useState(reference?.pages ?? '')
-  const [issn, setIssn] = useState(reference?.issn ?? '')
-  const [booktitle, setBooktitle] = useState(reference?.booktitle ?? '')
-  const [address, setAddress] = useState(reference?.address ?? '')
-  const [publisher, setPublisher] = useState(reference?.publisher ?? '')
-  const [isbn, setIsbn] = useState(reference?.isbn ?? '')
-  const [keywords, setKeywords] = useState(reference?.keywords ?? '')
-  const [language, setLanguage] = useState(reference?.language ?? '')
-  const [accessDate, setAccessDate] = useState(reference?.accessDate ?? '')
 
   const [errors, setErrors] = useState<{ title?: string }>({})
 
@@ -86,7 +161,7 @@ export default function ReferenceForm({ reference, onClose }: Props) {
     setIsbn(parsed.isbn ?? '')
     setKeywords(parsed.keywords ?? '')
     setLanguage(parsed.language ?? '')
-    setAccessDate(parsed.accessDate ?? '')
+    setAccessed(parsed.accessDate ?? '')
 
     // Close modal and reset
     setShowBibtexModal(false)
@@ -126,18 +201,38 @@ export default function ReferenceForm({ reference, onClose }: Props) {
       abstract,
       notes,
       tags,
-      journal: journal || undefined,
+      // Series Data
+      series: series || undefined,
+      seriesTitle: seriesTitle || undefined,
+      seriesText: seriesText || undefined,
+      seriesNumber: seriesNumber || undefined,
+      // Identifiers
+      issn: issn || undefined,
+      isbn: isbn || undefined,
+      journalAbbr: journalAbbr || undefined,
+      // Physical/ID
+      pages: pages || undefined,
+      language: language || undefined,
       volume: volume || undefined,
       issue: issue || undefined,
-      pages: pages || undefined,
-      issn: issn || undefined,
+      // Digital/Locational
+      shortTitle: shortTitle || undefined,
+      accessed: accessed || undefined,
+      archive: archive || undefined,
+      locInArchive: locInArchive || undefined,
+      // Management
+      libraryTags: libraryTags || undefined,
+      callNumber: callNumber || undefined,
+      rights: rights || undefined,
+      extra: extra || undefined,
+      // Type-specific
+      journal: journal || undefined,
       booktitle: booktitle || undefined,
+      conference: conference || undefined,
       address: address || undefined,
       publisher: publisher || undefined,
-      isbn: isbn || undefined,
+      // General
       keywords: keywords || undefined,
-      language: language || undefined,
-      accessDate: accessDate || undefined,
     }
 
     if (reference) {
@@ -166,7 +261,7 @@ export default function ReferenceForm({ reference, onClose }: Props) {
   }[type]
 
   return (
-    <div className="w-80 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-surface-900 flex flex-col overflow-hidden">
+    <div className="w-96 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-surface-900 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-100">
@@ -192,57 +287,8 @@ export default function ReferenceForm({ reference, onClose }: Props) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {/* Title */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Title <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Paper title"
-            className={`w-full text-sm border rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 ${
-              errors.title
-                ? 'border-red-300 dark:border-red-600 focus:ring-red-500'
-                : 'border-gray-300 dark:border-gray-600 focus:ring-accent-500'
-            }`}
-          />
-          {errors.title && <p className="text-xs text-red-500 mt-1">{errors.title}</p>}
-        </div>
-
-        {/* Authors */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Authors
-          </label>
-          <input
-            type="text"
-            value={authors}
-            onChange={(e) => setAuthors(e.target.value)}
-            placeholder="Smith, John, Doe, Jane"
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-          />
-        </div>
-
-        {/* Year */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Year
-          </label>
-          <input
-            type="number"
-            min="1000"
-            max="2099"
-            value={year}
-            onChange={(e) => setYear(e.target.value)}
-            placeholder="2023"
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-          />
-        </div>
-
-        {/* Type */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-1">
+        {/* Type Selection */}
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
             Type
@@ -260,226 +306,151 @@ export default function ReferenceForm({ reference, onClose }: Props) {
           </select>
         </div>
 
-        {/* Source */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            {sourceLabel}
-          </label>
-          <input
-            type="text"
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            placeholder={sourceLabel}
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
+        {/* Core Info Section */}
+        <FormSection title="Core Info">
+          <FieldInput
+            label="Title"
+            value={title}
+            onChange={setTitle}
+            placeholder="Paper title"
+            optional={false}
           />
-        </div>
+          <FieldInput label="Authors" value={authors} onChange={setAuthors} placeholder="Smith, John, Doe, Jane" />
+          <FieldInput label="Year" value={year} onChange={setYear} placeholder="2023" type="number" />
+          <FieldInput label={sourceLabel || 'Source'} value={source} onChange={setSource} placeholder={sourceLabel} />
+        </FormSection>
 
-        {/* URL */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            URL
-          </label>
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://..."
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-          />
-        </div>
+        {/* Series Data Section */}
+        <FormSection title="Series Data" defaultOpen={false}>
+          <FieldInput label="Series" value={series} onChange={setSeries} />
+          <FieldInput label="Series Title" value={seriesTitle} onChange={setSeriesTitle} />
+          <FieldInput label="Series Number" value={seriesNumber} onChange={setSeriesNumber} />
+          <FieldInput label="Series Text" value={seriesText} onChange={setSeriesText} />
+        </FormSection>
 
-        {/* DOI */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            DOI
-          </label>
-          <input
-            type="text"
-            value={doi}
-            onChange={(e) => setDoi(e.target.value)}
-            placeholder="10.1234/..."
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-          />
-        </div>
+        {/* Identifiers Section */}
+        <FormSection title="Identifiers" defaultOpen={false}>
+          <FieldInput label="DOI" value={doi} onChange={setDoi} placeholder="10.1234/..." />
+          <FieldInput label="ISSN" value={issn} onChange={setIssn} placeholder="e.g., 0307-4803" />
+          <FieldInput label="ISBN" value={isbn} onChange={setIsbn} placeholder="e.g., 978-1-891562-41-9" />
+          <FieldInput label="Journal Abbreviation" value={journalAbbr} onChange={setJournalAbbr} />
+        </FormSection>
 
-        {/* Type-specific fields */}
+        {/* Type-specific Fields */}
         {(type === 'journal' || type === 'conference') && (
-          <>
+          <FormSection title="Publication Details" defaultOpen={true}>
             {type === 'journal' && (
               <>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                    Volume
-                  </label>
-                  <input
-                    type="text"
-                    value={volume}
-                    onChange={(e) => setVolume(e.target.value)}
-                    placeholder="e.g., 110"
-                    className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                    Issue
-                  </label>
-                  <input
-                    type="text"
-                    value={issue}
-                    onChange={(e) => setIssue(e.target.value)}
-                    placeholder="e.g., 5"
-                    className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                    ISSN
-                  </label>
-                  <input
-                    type="text"
-                    value={issn}
-                    onChange={(e) => setIssn(e.target.value)}
-                    placeholder="e.g., 0307-4803"
-                    className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                    Publisher
-                  </label>
-                  <input
-                    type="text"
-                    value={publisher}
-                    onChange={(e) => setPublisher(e.target.value)}
-                    placeholder="Publisher name"
-                    className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                  />
-                </div>
+                <FieldInput label="Journal Name" value={journal} onChange={setJournal} />
               </>
             )}
             {type === 'conference' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  Conference Location
-                </label>
-                <input
-                  type="text"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="e.g., New York, NY"
-                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                />
-              </div>
+              <>
+                <FieldInput label="Conference Name" value={conference} onChange={setConference} />
+                <FieldInput label="Proceedings Title" value={booktitle} onChange={setBooktitle} />
+                <FieldInput label="Location" value={address} onChange={setAddress} placeholder="e.g., New York, NY" />
+              </>
             )}
-            <div>
-              <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                Pages
-              </label>
-              <input
-                type="text"
-                value={pages}
-                onChange={(e) => setPages(e.target.value)}
-                placeholder="e.g., 237--248"
-                className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-              />
-            </div>
-          </>
+            <FieldInput label="Volume" value={volume} onChange={setVolume} placeholder="e.g., 110" />
+            <FieldInput label="Issue" value={issue} onChange={setIssue} placeholder="e.g., 5" />
+            <FieldInput label="Pages" value={pages} onChange={setPages} placeholder="e.g., 237--248" />
+            <FieldInput label="Publisher" value={publisher} onChange={setPublisher} />
+          </FormSection>
         )}
 
         {(type === 'book' || type === 'chapter') && (
-          <>
+          <FormSection title="Publication Details" defaultOpen={true}>
             {type === 'book' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  ISBN
-                </label>
-                <input
-                  type="text"
-                  value={isbn}
-                  onChange={(e) => setIsbn(e.target.value)}
-                  placeholder="e.g., 978-1-891562-41-9"
-                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                />
-              </div>
+              <>
+                <FieldInput label="Publisher" value={publisher} onChange={setPublisher} />
+              </>
             )}
             {type === 'chapter' && (
-              <div>
-                <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-                  Pages
-                </label>
-                <input
-                  type="text"
-                  value={pages}
-                  onChange={(e) => setPages(e.target.value)}
-                  placeholder="e.g., 237--248"
-                  className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-                />
-              </div>
+              <>
+                <FieldInput label="Book Title" value={booktitle} onChange={setBooktitle} />
+              </>
             )}
-          </>
+            <FieldInput label="Volume" value={volume} onChange={setVolume} />
+            <FieldInput label="Pages" value={pages} onChange={setPages} placeholder="e.g., 237--248" />
+          </FormSection>
+        )}
+
+        {type === 'report' && (
+          <FormSection title="Publication Details" defaultOpen={true}>
+            <FieldInput label="Institution" value={source} onChange={setSource} />
+            <FieldInput label="Publisher" value={publisher} onChange={setPublisher} />
+            <FieldInput label="Location" value={address} onChange={setAddress} />
+          </FormSection>
+        )}
+
+        {type === 'thesis' && (
+          <FormSection title="Publication Details" defaultOpen={true}>
+            <FieldInput label="University" value={source} onChange={setSource} />
+            <FieldInput label="Location" value={address} onChange={setAddress} />
+          </FormSection>
         )}
 
         {type === 'webpage' && (
-          <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-              Access Date
-            </label>
-            <input
-              type="date"
-              value={accessDate}
-              onChange={(e) => setAccessDate(e.target.value)}
-              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-            />
-          </div>
+          <FormSection title="Publication Details" defaultOpen={true}>
+            <FieldInput label="Website Name" value={source} onChange={setSource} />
+          </FormSection>
         )}
 
+        {type === 'chapter' && (
+          <FormSection title="Publication Details" defaultOpen={true}>
+            <FieldInput label="Publisher" value={publisher} onChange={setPublisher} />
+          </FormSection>
+        )}
+
+        {/* Physical/ID Section */}
+        <FormSection title="Physical/ID" defaultOpen={false}>
+          <FieldInput label="Language" value={language} onChange={setLanguage} />
+        </FormSection>
+
+        {/* Digital/Locational Section */}
+        <FormSection title="Digital/Locational" defaultOpen={false}>
+          <FieldInput label="Short Title" value={shortTitle} onChange={setShortTitle} />
+          <FieldInput label="URL" value={url} onChange={setUrl} placeholder="https://..." type="url" />
+          <FieldInput label="Accessed" value={accessed} onChange={setAccessed} type="date" />
+          <FieldInput label="Archive" value={archive} onChange={setArchive} />
+          <FieldInput label="Location in Archive" value={locInArchive} onChange={setLocInArchive} />
+        </FormSection>
+
+        {/* Management Section */}
+        <FormSection title="Management" defaultOpen={false}>
+          <FieldInput label="Call Number" value={callNumber} onChange={setCallNumber} />
+          <FieldInput label="Library Tags" value={libraryTags} onChange={setLibraryTags} />
+          <FieldInput label="Rights" value={rights} onChange={setRights} />
+          <FieldInput label="Extra" value={extra} onChange={setExtra} />
+        </FormSection>
+
         {/* Keywords */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Keywords
-          </label>
-          <input
-            type="text"
-            value={keywords}
-            onChange={(e) => setKeywords(e.target.value)}
-            placeholder="Comma-separated keywords"
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500"
-          />
-        </div>
-
-        {/* Abstract */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Abstract
-          </label>
-          <textarea
-            value={abstract}
-            onChange={(e) => setAbstract(e.target.value)}
-            placeholder="Summary of the work..."
-            rows={3}
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500 resize-none"
-          />
-        </div>
-
-        {/* Notes */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
-            Notes
-          </label>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Personal observations..."
-            rows={2}
-            className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500 resize-none"
-          />
-        </div>
+        <FormSection title="Content" defaultOpen={false}>
+          <FieldInput label="Keywords" value={keywords} onChange={setKeywords} placeholder="Comma-separated keywords" />
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Abstract</label>
+            <textarea
+              value={abstract}
+              onChange={(e) => setAbstract(e.target.value)}
+              placeholder="Summary of the work..."
+              rows={3}
+              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500 resize-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Personal observations..."
+              rows={2}
+              className="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2.5 py-2 bg-white dark:bg-surface-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-accent-500 resize-none"
+            />
+          </div>
+        </FormSection>
 
         {/* Tags */}
-        <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">
-            Tags
-          </label>
+        <FormSection title="Tags" defaultOpen={false}>
           <div className="flex flex-wrap gap-2 mb-2">
             {tags.map((tag) => (
               <span
@@ -517,7 +488,7 @@ export default function ReferenceForm({ reference, onClose }: Props) {
               Add
             </button>
           </div>
-        </div>
+        </FormSection>
       </div>
 
       {/* Footer */}

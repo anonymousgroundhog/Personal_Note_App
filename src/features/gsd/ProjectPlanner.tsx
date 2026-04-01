@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useGsdStore } from './gsdStore'
+import { useGsdVaultSync } from './useGsdVaultSync'
 import type { GsdProject } from './gsdStore'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1115,6 +1116,7 @@ export default function ProjectPlanner() {
 
   const { rootHandle, fallbackMode, saveNote, readNote } = useVaultStore()
   const hasVault = !!(rootHandle || fallbackMode)
+  const { scheduleWrite } = useGsdVaultSync()
 
   const plan = activePlan!
 
@@ -1123,6 +1125,8 @@ export default function ProjectPlanner() {
     if (!planToSync.projectName.trim()) return planToSync
     const store = useGsdStore.getState()
     const synced = syncPlanToGsd(planToSync, store)
+    // Trigger vault write for GSD data after syncing
+    scheduleWrite()
     // Reflect any gsdItemId changes back into React state
     setActivePlan(prev => {
       if (!prev || prev.gsdProjectId === synced.gsdProjectId &&
@@ -1130,7 +1134,7 @@ export default function ProjectPlanner() {
       return synced
     })
     return synced
-  }, [])
+  }, [scheduleWrite])
 
   // ── Vault write helper (600ms debounce) ──────────────────────────────────────
   const schedulePlanVaultWrite = useCallback((p: ProjectPlan) => {
