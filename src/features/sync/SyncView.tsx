@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { useVaultStore } from '../../stores/vaultStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { git, gitStream, getGitCaps, isServerReachable, browseDirectory } from '../../lib/github/gitClient'
 import type { GitCaps } from '../../lib/github/gitClient'
 
@@ -27,6 +28,7 @@ function saveVaultPath(p: string) {
 export default function SyncView() {
   const { rootHandle } = useVaultStore()
   const { status, setStatus, progress, setProgress, log, addLog, clearLog, lastSyncAt, setLastSyncAt } = useSyncStore()
+  const { gitConfig } = useSettingsStore()
 
   // Server / git capability state
   const [serverUp, setServerUp] = useState<boolean | null>(null)
@@ -205,7 +207,22 @@ export default function SyncView() {
     const log_ = (lvl: Parameters<typeof addLog>[0], msg: string) => addLog(lvl, msg)
 
     try {
+      // Check if git config is set
+      if (!gitConfig.userName || !gitConfig.userEmail) {
+        log_('error', 'Git user configuration missing. Please set your name and email in Settings.')
+        setStatus('error')
+        return
+      }
+
       log_('info', `Starting sync on branch "${branch}"`)
+
+      // Configure git user identity
+      log_('info', 'Configuring git user identity…')
+      const nameRes = await git(vaultPath, ['config', 'user.name', gitConfig.userName])
+      if (nameRes.code !== 0) throw new Error(`Failed to set git user.name: ${nameRes.stderr}`)
+      const emailRes = await git(vaultPath, ['config', 'user.email', gitConfig.userEmail])
+      if (emailRes.code !== 0) throw new Error(`Failed to set git user.email: ${emailRes.stderr}`)
+      setProgress(5)
 
       // 1. If LFS enabled, run git lfs track common large-file extensions
       if (caps?.lfs && hasLfs) {
@@ -214,13 +231,13 @@ export default function SyncView() {
           if (type === 'stdout' && typeof data === 'string' && data.trim()) log_('info', data.trim())
         })
       }
-      setProgress(10)
+      setProgress(15)
 
       // 2. Stage all changes
       log_('info', 'Staging all changes (git add -A)…')
       const addRes = await git(vaultPath, ['add', '-A'])
       if (addRes.stderr.trim()) log_('warn', addRes.stderr.trim())
-      setProgress(25)
+      setProgress(30)
 
       // 3. Check if there's anything to commit
       const statusRes = await git(vaultPath, ['status', '--short'])
@@ -236,7 +253,7 @@ export default function SyncView() {
 
       const lineCount = stagedSummary.split('\n').filter(Boolean).length
       log_('info', `${lineCount} file(s) staged`)
-      setProgress(40)
+      setProgress(45)
 
       // 4. Commit
       const msg = commitMsg.trim() || `Sync — ${new Date().toLocaleString()}`
@@ -244,7 +261,7 @@ export default function SyncView() {
       const commitRes = await git(vaultPath, ['commit', '-m', msg])
       if (commitRes.code !== 0) throw new Error(commitRes.stderr || commitRes.stdout)
       log_('info', commitRes.stdout.trim())
-      setProgress(60)
+      setProgress(65)
 
       // 5. Push (stream so we see progress)
       if (remoteUrl) {
@@ -282,7 +299,7 @@ export default function SyncView() {
       setStatus('error')
     }
   }, [vaultPath, isRepo, isSyncing, selectedBranch, currentBranch, caps, hasLfs,
-    commitMsg, remoteUrl, addLog, clearLog, setStatus, setProgress, setLastSyncAt])
+    commitMsg, remoteUrl, gitConfig, addLog, clearLog, setStatus, setProgress, setLastSyncAt])
 
   // ── pull ────────────────────────────────────────────────────────────────────
 
