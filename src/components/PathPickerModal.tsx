@@ -19,26 +19,29 @@ interface PathPickerModalProps {
   fileFilter?: string
 }
 
-// Host home directory mounted into the container by docker-compose
-const HOST_HOME = '/root/host-home'
-
 export default function PathPickerModal({
   isOpen,
   onClose,
   onSelect,
-  startPath = HOST_HOME,
+  startPath,
   title = 'Select Path',
   dirOnly = true,
   fileFilter,
 }: PathPickerModalProps) {
-  const [currentPath, setCurrentPath] = useState(startPath)
+  const [currentPath, setCurrentPath] = useState(startPath ?? '')
+  const [homeDir, setHomeDir] = useState(startPath ?? '')
   const [entries, setEntries] = useState<Entry[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     if (isOpen) {
-      navigate(startPath)
+      if (startPath) {
+        navigate(startPath)
+      } else {
+        // Ask the server for the actual home directory (no path = server homedir())
+        navigate('')
+      }
     }
   }, [isOpen, startPath])
 
@@ -46,10 +49,13 @@ export default function PathPickerModal({
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`/browse/ls?path=${encodeURIComponent(path)}`)
+      const query = path ? `?path=${encodeURIComponent(path)}` : ''
+      const res = await fetch(`/browse/ls${query}`)
       if (!res.ok) throw new Error(`Cannot read directory: ${path}`)
       const data = await res.json()
       setCurrentPath(data.path)
+      // On first navigation (no path given), capture the resolved home directory
+      if (!path) setHomeDir(data.path)
       const filtered = (data.entries as Entry[]).filter(e => {
         if (e.type === 'dir') return true
         if (dirOnly) return false
@@ -65,17 +71,16 @@ export default function PathPickerModal({
   }
 
   const goUp = () => {
-    // Don't navigate above /host-home
-    if (currentPath === HOST_HOME) return
-    const parent = currentPath.split('/').slice(0, -1).join('/') || HOST_HOME
+    if (currentPath === homeDir) return
+    const parent = currentPath.split('/').slice(0, -1).join('/') || homeDir
     navigate(parent)
   }
 
   if (!isOpen) return null
 
   // Build breadcrumb parts, treating /host-home as the root shown to the user
-  const relativePath = currentPath.startsWith(HOST_HOME)
-    ? currentPath.slice(HOST_HOME.length) || '/'
+  const relativePath = currentPath.startsWith(homeDir)
+    ? currentPath.slice(homeDir.length) || '/'
     : currentPath
   const parts = relativePath.split('/').filter(Boolean)
 
@@ -96,12 +101,12 @@ export default function PathPickerModal({
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-1 px-4 py-2 text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-700 shrink-0 overflow-x-auto">
-          <button onClick={() => navigate(HOST_HOME)} className="hover:text-blue-500 shrink-0 flex items-center gap-1">
+          <button onClick={() => navigate(homeDir)} className="hover:text-blue-500 shrink-0 flex items-center gap-1">
             <Home size={12} />
             <span>~</span>
           </button>
           {parts.map((part, i) => {
-            const path = HOST_HOME + '/' + parts.slice(0, i + 1).join('/')
+            const path = homeDir + '/' + parts.slice(0, i + 1).join('/')
             return (
               <React.Fragment key={path}>
                 <ChevronRight size={10} className="shrink-0" />
@@ -121,7 +126,7 @@ export default function PathPickerModal({
           {error && (
             <div className="px-4 py-3 text-sm text-red-500">{error}</div>
           )}
-          {!loading && !error && currentPath !== HOST_HOME && (
+          {!loading && !error && currentPath !== homeDir && (
             <button
               onClick={goUp}
               className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-surface-700"

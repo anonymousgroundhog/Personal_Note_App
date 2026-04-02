@@ -4,10 +4,12 @@ import {
   PieChart, Pie, Cell, Legend,
   AreaChart, Area, CartesianGrid,
 } from 'recharts'
-import { TrendingUp, TrendingDown, DollarSign, Pencil } from 'lucide-react'
+import { TrendingUp, TrendingDown, DollarSign, Pencil, Settings2 } from 'lucide-react'
 import { useFinanceStore } from './financeStore'
 import { formatCurrency, formatMonthShort, formatMonth, useChartTheme, monthRange } from './financeUtils'
 import TransactionForm from './TransactionForm'
+import CustomizeModal from '../../components/CustomizeModal'
+import { useSectionVisibility, type SectionDef } from '../../hooks/useSectionVisibility'
 import type { Transaction } from './types'
 
 type Range = '1m' | '3m' | '6m' | '1y' | 'all'
@@ -36,10 +38,20 @@ function StatCard({ label, value, sub, positive }: { label: string; value: strin
   )
 }
 
+const SECTIONS: SectionDef[] = [
+  { id: 'summary-cards', label: 'Summary Cards', description: 'Balance, income & expense totals' },
+  { id: 'income-chart', label: 'Income vs Expenses', description: 'Monthly bar chart comparison' },
+  { id: 'expense-chart', label: 'Expense Breakdown', description: 'Category pie chart' },
+  { id: 'balance-chart', label: 'Running Balance', description: 'Balance over time area chart' },
+  { id: 'recent-transactions', label: 'Recent Transactions', description: 'Latest transaction list' },
+]
+
 export default function FinanceDashboard() {
   const { transactions, categories, getMonthSummaries, getCategorySummaries, getRunningBalance, getTotalBalance } = useFinanceStore()
   const [range, setRange] = useState<Range>('6m')
   const [editTx, setEditTx] = useState<Transaction | null>(null)
+  const [showCustomize, setShowCustomize] = useState(false)
+  const { isVisible } = useSectionVisibility('finance-dashboard', SECTIONS)
   const theme = useChartTheme()
 
   const { from, to } = getRangeDates(range)
@@ -70,27 +82,39 @@ export default function FinanceDashboard() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 space-y-4">
-        {/* Range selector */}
-        <div className="flex items-center gap-1">
-          {(['1m','3m','6m','1y','all'] as Range[]).map(r => (
-            <button key={r} onClick={() => setRange(r)}
-              className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${range === r ? 'bg-accent-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700'}`}>
-              {getRangeLabel(r)}
-            </button>
-          ))}
+        {/* Header with range selector and customize button */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-1">
+            {(['1m','3m','6m','1y','all'] as Range[]).map(r => (
+              <button key={r} onClick={() => setRange(r)}
+                className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${range === r ? 'bg-accent-500 text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700'}`}>
+                {getRangeLabel(r)}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowCustomize(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-surface-700 rounded transition-colors"
+          >
+            <Settings2 size={14} />
+            Customize
+          </button>
         </div>
 
         {/* Stat cards */}
+        {isVisible('summary-cards') && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
           <StatCard label="Total Balance" value={formatCurrency(totalBalance)} />
           <StatCard label="Income" value={formatCurrency(totalIncome)} positive={true} sub={getRangeLabel(range)} />
           <StatCard label="Expenses" value={formatCurrency(totalExpenses)} positive={false} sub={getRangeLabel(range)} />
           <StatCard label="Net" value={formatCurrency(netInRange)} positive={netInRange >= 0} sub={getRangeLabel(range)} />
         </div>
+        )}
 
         {/* Charts grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Monthly bar chart */}
+          {isVisible('income-chart') && (
           <div className="bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
               <TrendingUp size={14} className="text-accent-500" />
@@ -111,8 +135,10 @@ export default function FinanceDashboard() {
               </ResponsiveContainer>
             )}
           </div>
+          )}
 
           {/* Expense categories pie */}
+          {isVisible('expense-chart') && (
           <div className="bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
             <div className="flex items-center gap-2 mb-3">
               <DollarSign size={14} className="text-accent-500" />
@@ -134,8 +160,10 @@ export default function FinanceDashboard() {
               </ResponsiveContainer>
             )}
           </div>
+          )}
 
           {/* Running balance area chart */}
+          {isVisible('balance-chart') && (
           <div className="bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 lg:col-span-2">
             <div className="flex items-center gap-2 mb-3">
               <TrendingDown size={14} className="text-accent-500" />
@@ -161,9 +189,11 @@ export default function FinanceDashboard() {
               </ResponsiveContainer>
             )}
           </div>
+          )}
         </div>
 
         {/* Recent transactions */}
+        {isVisible('recent-transactions') && (
         <div className="bg-white dark:bg-surface-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Transactions</h3>
           {recent.length === 0 ? (
@@ -200,7 +230,18 @@ export default function FinanceDashboard() {
             </div>
           )}
         </div>
+        )}
       </div>
+
+      {/* Customize modal */}
+      {showCustomize && (
+        <CustomizeModal
+          title="Customize Dashboard"
+          sections={SECTIONS}
+          namespace="finance-dashboard"
+          onClose={() => setShowCustomize(false)}
+        />
+      )}
 
       {/* Edit drawer */}
       {editTx && (

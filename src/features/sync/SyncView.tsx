@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import { useSyncStore } from '../../stores/syncStore'
 import { useVaultStore } from '../../stores/vaultStore'
-import { git, gitStream, getGitCaps, isServerReachable } from '../../lib/github/gitClient'
-import { DirectoryBrowser } from '../../components/DirectoryBrowser'
+import { useSettingsStore } from '../../stores/settingsStore'
+import { git, gitStream, getGitCaps, isServerReachable, browseDirectory } from '../../lib/github/gitClient'
 import type { GitCaps } from '../../lib/github/gitClient'
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -28,6 +28,7 @@ function saveVaultPath(p: string) {
 export default function SyncView() {
   const { rootHandle } = useVaultStore()
   const { status, setStatus, progress, setProgress, log, addLog, clearLog, lastSyncAt, setLastSyncAt } = useSyncStore()
+  const { gitConfig } = useSettingsStore()
 
   // Server / git capability state
   const [serverUp, setServerUp] = useState<boolean | null>(null)
@@ -96,46 +97,36 @@ export default function SyncView() {
     if (!path || !serverUp) return
     setStatus('checking')
     try {
-      // Debug: check git config and HEAD
-      const gitDirRes = await git(path, ['rev-parse', '--git-dir'])
-      addLog('info', `Git directory: ${gitDirRes.stdout.trim()}`)
-
-      const headRes = await git(path, ['rev-parse', '--abbrev-ref', 'HEAD'])
-      if (headRes.code === 0) {
-        addLog('info', `HEAD: ${headRes.stdout.trim()}`)
-      }
-
       // Check if inside a git repo
-      const rev = await git(path, ['rev-parse', '--is-inside-work-tree'])
+      const rev = await git(path, ['rev-parse', '--is-inside-work-tree']).catch(err => {
+        // If we get directory not found, log detailed diagnostic info
+        console.error('git command failed:', err)
+        if (err.message?.includes('directory not found')) {
+          addLog('error', `Path check failed: ${path}. This might be a permissions or environment issue. Try:`)
+          addLog('error', `1. Closing the app completely (Ctrl+C in terminal)`)
+          addLog('error', `2. Waiting 5 seconds`)
+          addLog('error', `3. Restarting the app`)
+        }
+        throw err
+      })
       if (rev.code !== 0) {
-        addLog('error', `Git detection failed (code ${rev.code}): ${rev.stderr || rev.stdout}`)
+        if (rev.stderr) {
+          addLog('error', `Git error: ${rev.stderr}`)
+        }
         setIsRepo(false)
         setStatus('idle')
         return
       }
       if (rev.stdout.trim() !== 'true') {
-        addLog('error', `Not a git repository (unexpected output: "${rev.stdout.trim()}")`)
         setIsRepo(false)
         setStatus('idle')
         return
       }
       setIsRepo(true)
 
-      // Fetch latest from remote to ensure we have all branches
-      const fetchRes = await git(path, ['fetch', 'origin'])
-      if (fetchRes.code === 0) {
-        addLog('info', 'Fetched latest branches from origin')
-      } else {
-        addLog('warn', `Fetch warning: ${fetchRes.stderr || 'no error message'}`)
-      }
-
       // Current branch
       const branchRes = await git(path, ['branch', '--show-current'])
       const branch = branchRes.stdout.trim() || 'main'
-      if (branchRes.code !== 0) {
-        addLog('warn', `Failed to get current branch: ${branchRes.stderr || branchRes.stdout}`)
-      }
-      addLog('info', `Current branch: ${branch}`)
       setCurrentBranch(branch)
       setSelectedBranch(branch)
 
@@ -143,18 +134,12 @@ export default function SyncView() {
       const remoteRes = await git(path, ['remote', 'get-url', 'origin'])
       setRemoteUrl(remoteRes.code === 0 ? remoteRes.stdout.trim() : '')
 
-      // All branches (local + remote) — use show-ref for reliable parsing
-      const showRefRes = await git(path, ['show-ref'])
-      const allBranches = showRefRes.stdout
+      // All branches (local + remote)
+      const branchesRes = await git(path, ['branch', '-a', '--format=%(refname:short)'])
+      const allBranches = branchesRes.stdout
         .split('\n')
-        .filter(line => line.trim())
-        .map(line => {
-          // Format: "abc123def refs/heads/main" or "abc123def refs/remotes/origin/main"
-          const match = line.match(/refs\/(heads|remotes\/origin)\/(.+)$/)
-          return match ? match[2] : null
-        })
-        .filter((b): b is string => !!b && b !== 'HEAD')  // Filter out HEAD pseudo-ref
-      addLog('info', `Found ${allBranches.length} branches: ${allBranches.join(', ') || '(none)'}`)
+        .map(b => b.trim().replace(/^origin\//, ''))
+        .filter(b => b && !b.startsWith('HEAD'))
       setBranches([...new Set([branch, ...allBranches])])
 
       // Check for .lfsconfig or lfs tracking
@@ -222,7 +207,22 @@ export default function SyncView() {
     const log_ = (lvl: Parameters<typeof addLog>[0], msg: string) => addLog(lvl, msg)
 
     try {
+      // Check if git config is set
+      if (!gitConfig.userName || !gitConfig.userEmail) {
+        log_('error', 'Git user configuration missing. Please set your name and email in Settings.')
+        setStatus('error')
+        return
+      }
+
       log_('info', `Starting sync on branch "${branch}"`)
+
+      // Configure git user identity
+      log_('info', 'Configuring git user identity…')
+      const nameRes = await git(vaultPath, ['config', 'user.name', gitConfig.userName])
+      if (nameRes.code !== 0) throw new Error(`Failed to set git user.name: ${nameRes.stderr}`)
+      const emailRes = await git(vaultPath, ['config', 'user.email', gitConfig.userEmail])
+      if (emailRes.code !== 0) throw new Error(`Failed to set git user.email: ${emailRes.stderr}`)
+      setProgress(5)
 
       // 1. If LFS enabled, run git lfs track common large-file extensions
       if (caps?.lfs && hasLfs) {
@@ -231,13 +231,13 @@ export default function SyncView() {
           if (type === 'stdout' && typeof data === 'string' && data.trim()) log_('info', data.trim())
         })
       }
-      setProgress(10)
+      setProgress(15)
 
       // 2. Stage all changes
       log_('info', 'Staging all changes (git add -A)…')
       const addRes = await git(vaultPath, ['add', '-A'])
       if (addRes.stderr.trim()) log_('warn', addRes.stderr.trim())
-      setProgress(25)
+      setProgress(30)
 
       // 3. Check if there's anything to commit
       const statusRes = await git(vaultPath, ['status', '--short'])
@@ -253,7 +253,7 @@ export default function SyncView() {
 
       const lineCount = stagedSummary.split('\n').filter(Boolean).length
       log_('info', `${lineCount} file(s) staged`)
-      setProgress(40)
+      setProgress(45)
 
       // 4. Commit
       const msg = commitMsg.trim() || `Sync — ${new Date().toLocaleString()}`
@@ -261,7 +261,7 @@ export default function SyncView() {
       const commitRes = await git(vaultPath, ['commit', '-m', msg])
       if (commitRes.code !== 0) throw new Error(commitRes.stderr || commitRes.stdout)
       log_('info', commitRes.stdout.trim())
-      setProgress(60)
+      setProgress(65)
 
       // 5. Push (stream so we see progress)
       if (remoteUrl) {
@@ -299,7 +299,7 @@ export default function SyncView() {
       setStatus('error')
     }
   }, [vaultPath, isRepo, isSyncing, selectedBranch, currentBranch, caps, hasLfs,
-    commitMsg, remoteUrl, addLog, clearLog, setStatus, setProgress, setLastSyncAt])
+    commitMsg, remoteUrl, gitConfig, addLog, clearLog, setStatus, setProgress, setLastSyncAt])
 
   // ── pull ────────────────────────────────────────────────────────────────────
 
@@ -348,13 +348,21 @@ export default function SyncView() {
     detectRepo(p)
   }
 
-  const [showBrowser, setShowBrowser] = useState(false)
-  const handleBrowse = () => {
-    setShowBrowser(true)
-  }
-  const handleBrowserSelect = (path: string) => {
-    setShowBrowser(false)
-    confirmVaultPath(path)
+  const [isBrowsing, setIsBrowsing] = useState(false)
+  const handleBrowse = async () => {
+    setIsBrowsing(true)
+    try {
+      const selected = await browseDirectory(vaultPath || undefined)
+      if (selected) confirmVaultPath(selected)
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      addLog('error', `Browse failed: ${errMsg}`)
+      if (errMsg.includes('zenity') || errMsg.includes('kdialog')) {
+        addLog('info', 'Running in Docker? Use manual path entry instead. Paste your vault path in the input field above.')
+      }
+    } finally {
+      setIsBrowsing(false)
+    }
   }
 
   // ── styles ──────────────────────────────────────────────────────────────────
@@ -459,20 +467,13 @@ export default function SyncView() {
                   placeholder="/home/you/my-notes  or  C:\Users\You\my-notes"
                   className={inputCls}
                 />
-                <button onClick={handleBrowse}
+                <button onClick={handleBrowse} disabled={isBrowsing}
                   title="Browse for vault folder"
-                  className="flex items-center gap-1.5 px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0">
-                  <FolderOpen size={14} />
+                  className="flex items-center gap-1.5 px-3 py-2 bg-accent-500 text-white rounded text-sm hover:bg-accent-600 flex-shrink-0 disabled:opacity-50">
+                  {isBrowsing ? <Loader size={14} className="animate-spin" /> : <FolderOpen size={14} />}
                   Browse
                 </button>
               </div>
-              {showBrowser && (
-                <DirectoryBrowser
-                  initialPath={vaultPath || vaultPathInput || undefined}
-                  onSelect={handleBrowserSelect}
-                  onCancel={() => setShowBrowser(false)}
-                />
-              )}
               {vaultPath && (
                 <p className="text-xs text-gray-500 flex items-center gap-1">
                   <CheckCircle size={11} className="text-emerald-500" />

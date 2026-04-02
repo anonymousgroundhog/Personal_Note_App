@@ -5,7 +5,6 @@ This Personal Note App is a comprehensive, all-in-one productivity and knowledge
 ## Features
 
 ### Core Notes & Knowledge Management
-
 - **Markdown Notes** — Full markdown editing with live preview, wiki-links `[[Note Name]]`, callouts `>[!info]`, GFM tables and task lists
 - **Tagging** — Tag notes via frontmatter; browse and filter by tag
 - **Command Palette** — `Ctrl+K` / `Cmd+K` to fuzzy-search all notes
@@ -14,25 +13,21 @@ This Personal Note App is a comprehensive, all-in-one productivity and knowledge
 - **Git Sync** — Commit and push your vault to a remote git repository
 
 ### Project & Task Management
-
 - **GSD (Getting Stuff Done)** — Inbox, Next Actions, Projects, Waiting For, Someday/Maybe, and Done tabs with a weekly review dashboard
 - **Project Planner** — Eight-step guided project management wizard (overview, stakeholders, scope, timeline, risks, resources, communication, next actions) with PDF export and automatic GSD sync
 - **Gantt Charts** — Visual project timelines from notes with `type: gantt-task` frontmatter; dependency arrows, subtask collapse, single-project and all-projects views
 - **Tasks View** — Aggregated task list combining vault Gantt tasks and GSD items with grouping, filtering, and inline editing
 
 ### Calendar & Scheduling
-
 - **Calendar** — Day, Week, Month views powered by FullCalendar; events sourced from note frontmatter `start:`/`end:`/`date:` fields plus GSD items with due dates
 - **ICS Import** — Import `.ics` files exported from Google Calendar, Outlook, or any calendar app
 - **Google Calendar** — Connect via OAuth2 PKCE (requires setup — see below)
 - **Outlook Calendar** — Connect via Microsoft OAuth2 PKCE (requires setup — see below)
 
 ### Academia
-
 - **Teaching, Research & Service** — Track academic activities by year and category (teaching, research, service) with a per-year dashboard, completion rings, drill-down filters, and vault sync that writes human-readable markdown notes
 
 ### Specialized Tools
-
 - **AI Chat** — Connect to any OpenAI-compatible server (OpenWebUI, Ollama, LM Studio); select a model and query with note context injected
 - **Finance Tracker** — Track income and expenses with categories, CSV import, and vault sync
 - **Diagrams** — Mermaid-based diagram editor with node types and export
@@ -45,7 +40,6 @@ This Personal Note App is a comprehensive, all-in-one productivity and knowledge
 - **Minecraft** — Minecraft reference and utilities tool
 
 ### App & Infrastructure
-
 - **LAN access** — Serve over HTTPS to other machines on your network (see below)
 - **Dark / Light mode** — Respects system preference, toggleable
 - **Customizable sidebar** — Show/hide any nav section; collapsible ribbon groups
@@ -60,13 +54,11 @@ The Personal Note App is now available as a **standalone desktop application** f
 ### Quick Start (Desktop App)
 
 **Windows:**
-
 ```cmd
 build-electron.bat
 ```
 
 **macOS/Linux:**
-
 ```bash
 chmod +x build-electron.sh
 ./build-electron.sh
@@ -75,7 +67,6 @@ chmod +x build-electron.sh
 Your packaged app will be in `dist-app/`. See [STANDALONE_README.md](./STANDALONE_README.md) for full details.
 
 ### Development Mode
-
 ```bash
 npm install
 npm run dev:electron
@@ -84,7 +75,6 @@ npm run dev:electron
 This launches the app with hot-reload for development.
 
 ### Features of Desktop App
-
 - ✅ Native Windows, macOS, and Linux application
 - ✅ Professional installers for each platform
 - ✅ Secure Electron IPC communication
@@ -93,15 +83,12 @@ This launches the app with hot-reload for development.
 - ✅ Git integration built-in
 
 ### Output Formats
-
 After building, you'll have:
-
 - **Windows**: NSIS installer + portable EXE
 - **macOS**: DMG installer + ZIP archive
 - **Linux**: AppImage + DEB package
 
 For more details on building and distribution, see:
-
 - 📘 [STANDALONE_README.md](./STANDALONE_README.md) — Feature overview and quick start
 - 🚀 [QUICK_REFERENCE.md](./QUICK_REFERENCE.md) — Commands and troubleshooting
 
@@ -113,12 +100,9 @@ For more details on building and distribution, see:
 
 Docker lets you run the app — including Java, apktool, and all security tools — without installing anything except Docker itself. Works on **Linux, macOS, and Windows**.
 
-**⚠️ Important:** You **must** create a `.env` file before running Docker. Copy `.env.example` to `.env` and set `HOST_HOME` to your home directory. This gives the container access to your files for git sync, vault storage, and file browsing.
-
 ### Prerequisites
 
 - [Docker Desktop](https://docs.docker.com/get-docker/) installed and running (includes Docker Compose)
-- `.env` file configured (copy from `.env.example` and set `HOST_HOME`)
 
 ### 1. Clone the repo
 
@@ -127,37 +111,23 @@ git clone <repo-url>
 cd personal-note-app
 ```
 
-### 2. Configure your home directory
+### 2. Build and start
 
-Create `.env` from `.env.example` and set your home directory:
-
-```bash
-cp .env.example .env
-# Edit .env and set HOST_HOME to your home directory:
-# Linux:   HOST_HOME=/home/yourusername
-# macOS:   HOST_HOME=/Users/yourusername
-# Windows: HOST_HOME=/home/yourusername (if using WSL)
-```
-
-### 3. Build and start
-
-The command depends on your OS. Each platform mounts your home directory into the container so the file browser, git sync, and Soot output reach your actual filesystem.
+The command depends on your OS. Each platform mounts your home directory into the container so the file browser and Soot output reach your actual filesystem.
 
 **Linux / macOS:**
-
 ```bash
 docker compose up --build
 ```
 
 **Windows** (PowerShell or CMD):
-
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.windows.yml up --build
 ```
 
 The first build takes a few minutes — it installs Java 17, apktool, Python, nmap, and all Node dependencies inside the image. Subsequent starts are fast.
 
-### 4. Open the app
+### 3. Open the app
 
 ```
 http://localhost:5173
@@ -168,59 +138,23 @@ Click **Open Vault Folder** and select a folder on your computer to store your n
 ### Subsequent Runs
 
 **Linux / macOS:**
-
 ```bash
 docker compose up       # start
 docker compose down     # stop
 ```
 
 **Windows:**
-
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.windows.yml up    # start
 docker compose -f docker-compose.yml -f docker-compose.windows.yml down  # stop
 ```
 
-### Working with Files and Configuring for Your Home Directory
+### Working with Files
 
-The Docker setup requires you to configure your home directory path so the container can access your files. This is done via the `.env` file.
+Your host home directory is mounted into the container at `/root/host-home`. The **Browse** buttons in the Security tools open a file picker rooted there, giving you access to your entire home directory from inside the container.
 
-#### Initial Setup (First Time)
-
-1. **Copy `.env.example` to `.env`:**
-
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Edit `.env` and set `HOST_HOME` to your home directory:**
-
-   - **Linux**: `HOST_HOME=/home/yourusername`
-   - **macOS**: `HOST_HOME=/Users/yourusername`
-   - **Windows+WSL**: `HOST_HOME=/home/yourusername`
-
-   Example `.env`:
-   ```bash
-   HOST_HOME=/home/spsand1
-   NODE_ENV=development
-   ```
-
-3. **Rebuild and start:**
-
-   ```bash
-   docker compose up --build
-   ```
-
-#### File Access in Docker
-
-Your home directory is mounted into the container at the same path (e.g., `/home/yourusername`). This means:
-
-- **Git repositories** — Any git repos in your home directory are accessible for syncing
-- **Notes/Vaults** — All vault folders are accessible via the directory browser
-- **APK files** — Place `.apk` anywhere in your home directory and use Browse to find it
-- **Soot output** — Defaults to `sootOutput/` inside your home directory (created automatically)
-
-The **Browse** buttons in the Security tools and Sync features open an interactive directory picker rooted at your home directory, giving you access to your entire filesystem from inside the container.
+- **APK files** — place your `.apk` anywhere under your home directory and use the Browse button to find it
+- **Soot output** — defaults to `sootOutput/` inside your home directory (i.e. `~/sootOutput` on the host), created automatically on first run
 
 ### Android Security Analysis (Soot) in Docker
 
@@ -239,7 +173,6 @@ The **Android Platforms Directory** field in the Soot Compiler can be left blank
 If the build fails with package download errors, Docker may be using the wrong DNS servers. Fix it by telling Docker to use your network's DNS:
 
 **Linux:**
-
 ```bash
 # Find your DNS servers
 cat /etc/resolv.conf   # look for "nameserver" lines
@@ -258,96 +191,35 @@ docker compose up --build
 ```
 
 **macOS/Windows:** Open Docker Desktop → Settings → Docker Engine and add the `dns` key:
-
 ```json
 {
   "dns": ["<your-dns-1>", "8.8.8.8"]
 }
 ```
 
-### Docker GitHub Sync Setup
-
-GitHub Sync allows you to commit and push your vault changes to a remote git repository. To use this feature with Docker:
-
-#### Prerequisites
-
-1. **SSH key configured on host** — You need an SSH key (`~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, or `~/.ssh/github`) that's authorized on GitHub
-2. **`.env` file configured** — Must have `HOST_HOME` set to your home directory (see "Working with Files" section above)
-
-#### How It Works
-
-When you click **Browse** in the Sync tab:
-1. An interactive directory picker opens
-2. Navigate to your vault folder (where the git repo is)
-3. Select it — the app detects branches, remote URL, and git status
-4. Use **Push** to commit and push, or **Pull** to fetch updates
-
-The git commands run inside the container, but your SSH keys are mounted from your host, so authentication works seamlessly.
-
-#### Troubleshooting Git Sync
-
-**"Host key verification failed" or "Permission denied (publickey)"**
-
-- Your SSH keys aren't being found by git inside the container
-- Ensure `HOST_HOME` is set correctly in `.env`
-- Verify your SSH key is readable: `ls -la ~/.ssh/`
-- Try adding your key to the ssh-agent on your host:
-  ```bash
-  ssh-add ~/.ssh/id_rsa  # or id_ed25519 or github
-  ```
-
-**"No git repository found in this folder"**
-
-- The selected folder isn't a git repository
-- Make sure you have a `.git` directory: `ls -la /path/to/vault/.git`
-- Or initialize a new repo in the app using **Initialise repository**
-
-**Branch dropdown shows only "main" instead of all branches**
-
-- This happens if `git fetch origin` fails (usually due to SSH/auth issues)
-- Check the Log tab for detailed error messages
-- Verify your remote is set: `git remote -v`
-
-**"Fetch warning: Host key verification failed"**
-
-- The container doesn't recognize GitHub's host key yet
-- This is usually fixed automatically on first successful fetch
-- If it persists, try manually fetching: `git fetch origin` in a terminal
-
 ### Docker troubleshooting
 
 **"Failed to fetch" in the Browse file picker**
-
 - The backend server (git-server) isn't running. Check the container logs:
-
   ```bash
   docker compose logs app
   ```
-
 - Rebuild with `--no-cache` to ensure a clean image:
-
   ```bash
   docker compose build --no-cache && docker compose up
   ```
 
-**Directory browser shows empty**
-
-- Ensure `HOST_HOME` in `.env` is set to your actual home directory
-- Make sure the `.env` file was created from `.env.example`
-- Rebuild: `docker compose up --build`
+**Browse shows `/root/host-home` but it's empty**
+- The volume mount didn't take effect. Make sure you're using the correct compose command for your OS (Linux/macOS use the default override; Windows requires `-f docker-compose.windows.yml`).
 
 **Soot fails with "Android platforms directory not found"**
-
 - Use the **Install** button in the Security → Soot Framework tab to download platform stubs into the container. Leave the Android Platforms Directory field blank and the server will find them automatically.
 
 **Windows: `docker compose` can't find `${USERPROFILE}`**
-
 - Make sure you're running in PowerShell or CMD (not Git Bash). Git Bash translates Windows paths in ways that break volume mounts.
 
 **Build fails on `npm rebuild node-pty`**
-
 - This is a native module. If the build warning appears but the container starts, the terminal feature will be unavailable but everything else works normally. If the container itself fails to start, rebuild:
-
   ```bash
   docker compose build --no-cache
   ```
@@ -407,85 +279,65 @@ If you want to use the Soot compiler, Jimple analyzer, or APK analysis tools, yo
 The app requires **Node.js v20**. The recommended way to install and manage Node.js versions is with [nvm](https://github.com/nvm-sh/nvm) (Node Version Manager), which lets you switch versions easily and avoids permission issues.
 
 #### **Windows**
-
 1. Install [nvm-windows](https://github.com/coreybutler/nvm-windows/releases) — download and run the `nvm-setup.exe` installer
 2. Open a new Command Prompt and run:
-
    ```cmd
    nvm install 20
    nvm use 20
    ```
-
 3. Verify by typing: `node --version`
 4. You should see `v20.x.x`
 
 > **Alternative (no nvm):** Go to [nodejs.org](https://nodejs.org/), download the **v20 LTS** installer, run it, and click **Next** through all steps. When asked "Install native modules", leave it checked.
 
 #### **macOS**
-
 1. Open Terminal and install nvm:
-
    ```bash
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
    ```
-
 2. Close and reopen Terminal, then run:
-
    ```bash
    nvm install 20
    nvm use 20
    ```
-
 3. Verify by typing: `node --version`
 
 > **Alternative (Homebrew):** `brew install node@20 && brew link node@20`
 
 #### **Linux (Ubuntu/Debian)**
-
 1. Open Terminal and install nvm:
-
    ```bash
    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
    ```
-
 2. Close and reopen Terminal, then run:
-
    ```bash
    nvm install 20
    nvm use 20
    ```
-
 3. Verify by typing: `node --version`
 
 > **Alternative (apt):** The system package may be an older version. Use the NodeSource repo for v20:
->
 > ```bash
 > curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 > sudo apt install -y nodejs
 > ```
 
 #### **Linux (Fedora/RHEL)**
-
 1. Open Terminal and install nvm (same as Ubuntu above), then:
-
    ```bash
    nvm install 20
    nvm use 20
    ```
-
 2. Verify by typing: `node --version`
 
 > **Alternative (dnf):**
->
 > ```bash
 > sudo dnf module enable nodejs:20
 > sudo dnf install nodejs npm
 > ```
 
 #### **Pinning the version (optional but recommended)**
-
 After installing, create a `.nvmrc` file in the project root so `nvm` always uses the right version automatically:
-
 ```bash
 echo "20" > .nvmrc
 nvm use  # reads .nvmrc automatically
@@ -496,30 +348,23 @@ nvm use  # reads .nvmrc automatically
 ### Step 2: Install and Run the App
 
 1. Clone or download the repository:
-
    ```bash
    git clone <repo-url>
    cd personal-note-app
    ```
-
    Or download the ZIP from GitHub, extract it, and open a terminal in that folder.
 
 2. Install dependencies:
-
    ```bash
    npm install
    ```
-
    This downloads all required packages (takes a minute or two on first run).
 
 3. Start the app:
-
    ```bash
    npm run dev
    ```
-
    You should see:
-
    ```
    ➜  Local:   https://localhost:5173/
    ```
@@ -537,7 +382,6 @@ That's it — the app is running. All notes, GSD tasks, finance data, and academ
 The app includes Android analysis tools that require Java. Follow the instructions for your operating system:
 
 #### **Windows**
-
 1. Go to [oracle.com/java/technologies/downloads/](https://www.oracle.com/java/technologies/downloads/)
 2. Click **Java 21** (or the latest LTS version)
 3. Under "Windows", click the download link for **x64 Installer** (the `.exe` file)
@@ -548,44 +392,33 @@ The app includes Android analysis tools that require Java. Follow the instructio
 8. You should see something like `java version "21.0.x"`
 
 #### **macOS**
-
 1. Open **Terminal** (find it in Applications → Utilities, or press `Cmd + Space` and type "Terminal")
 2. If you have Homebrew installed, run:
-
    ```bash
    brew install openjdk@21
    ```
-
 3. If you don't have Homebrew, install it first by pasting this into Terminal:
-
    ```bash
    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
    ```
-
 4. After Homebrew installs, run the Java command above
 5. Verify by typing: `java -version`
 
 #### **Linux (Ubuntu/Debian)**
-
 1. Open Terminal
 2. Run these commands:
-
    ```bash
    sudo apt update
    sudo apt install openjdk-21-jdk
    ```
-
 3. Verify by typing: `java -version`
 
 #### **Linux (Fedora/RHEL)**
-
 1. Open Terminal
 2. Run:
-
    ```bash
    sudo dnf install java-21-openjdk
    ```
-
 3. Verify by typing: `java -version`
 
 ---
@@ -595,7 +428,6 @@ The app includes Android analysis tools that require Java. Follow the instructio
 apktool is used to decompile Android apps. Follow the instructions for your operating system:
 
 #### **Windows**
-
 1. Create a folder for apktool: right-click on Desktop or your Documents folder → **New** → **Folder** → name it `apktool`
 2. Go to [github.com/iBotPeaches/Apktool/releases](https://github.com/iBotPeaches/Apktool/releases)
 3. Download `apktool_version.jar` (the .jar file, not the installer)
@@ -611,38 +443,29 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 7. Open a new Command Prompt and verify by typing: `apktool --version`
 
 #### **macOS**
-
 1. Open Terminal
 2. Install Homebrew if you haven't (see Java section)
 3. Run:
-
    ```bash
    brew install apktool
    ```
-
 4. Verify by typing: `apktool --version`
 
 #### **Linux (Ubuntu/Debian)**
-
 1. Open Terminal
 2. Run:
-
    ```bash
    sudo apt update
    sudo apt install apktool
    ```
-
 3. Verify by typing: `apktool --version`
 
 #### **Linux (Fedora/RHEL)**
-
 1. Open Terminal
 2. Run:
-
    ```bash
    sudo dnf install apktool
    ```
-
 3. Verify by typing: `apktool --version`
 
 ---
@@ -652,7 +475,6 @@ apktool is used to decompile Android apps. Follow the instructions for your oper
 Android Studio provides the Android SDK and development tools needed for advanced Android analysis. If you only plan to use basic analysis features, you can skip this step. However, it's recommended for full functionality.
 
 #### **Windows**
-
 1. Go to [developer.android.com/studio](https://developer.android.com/studio)
 2. Click **Download Android Studio**
 3. Accept the terms and download the installer
@@ -666,7 +488,6 @@ Android Studio provides the Android SDK and development tools needed for advance
 7. Close Android Studio when done
 
 #### **macOS**
-
 1. Go to [developer.android.com/studio](https://developer.android.com/studio)
 2. Click **Download Android Studio**
 3. Accept the terms and download the `.dmg` file
@@ -679,12 +500,10 @@ Android Studio provides the Android SDK and development tools needed for advance
 7. Close Android Studio when done
 
 #### **Linux (Ubuntu/Debian)**
-
 1. Go to [developer.android.com/studio](https://developer.android.com/studio)
 2. Click **Download Android Studio**
 3. Accept the terms and download the `.tar.gz` file
 4. Open Terminal and run:
-
    ```bash
    cd ~/Downloads
    tar -xzf android-studio-*.tar.gz
@@ -692,18 +511,14 @@ Android Studio provides the Android SDK and development tools needed for advance
    cd ~/android-studio/bin
    ./studio.sh
    ```
-
 5. Follow the setup wizard and let it download required components
 6. Close Android Studio when done
 
 #### **Linux (Fedora/RHEL)**
-
 1. Install the IDE and Java development tools:
-
    ```bash
    sudo dnf install android-studio
    ```
-
 2. Open Android Studio from your applications menu
 3. Follow the setup wizard and let it download components
 4. Close when done
@@ -741,7 +556,6 @@ Once Android Studio is installed, you need to install the Android SDK platforms 
 
 **Verification:**
 Open Terminal/Command Prompt and verify the SDK tools are installed:
-
 ```bash
 adb --version    # Should show Android Debug Bridge version
 ```
@@ -755,51 +569,38 @@ You should see version information without errors.
 The app works better when it knows where your Android SDK is installed. This step helps the analysis tools find Android components automatically.
 
 #### **Windows**
-
 1. Open Command Prompt
 2. Run this command (replacing the path with your actual SDK location):
-
    ```bash
    setx ANDROID_SDK_ROOT "C:\Users\YourName\AppData\Local\Android\Sdk"
    ```
-
 3. Close Command Prompt and open a new one
 4. Verify by typing: `echo %ANDROID_SDK_ROOT%`
 
 #### **macOS**
-
 1. Open Terminal
 2. Edit your profile:
-
    ```bash
    nano ~/.zprofile
    ```
-
 3. Add this line:
-
    ```bash
    export ANDROID_SDK_ROOT=~/Library/Android/sdk
    ```
-
 4. Press `Ctrl + X`, then `Y`, then `Enter` to save
 5. Run: `source ~/.zprofile`
 6. Verify by typing: `echo $ANDROID_SDK_ROOT`
 
 #### **Linux**
-
 1. Open Terminal
 2. Edit your profile:
-
    ```bash
    nano ~/.bashrc
    ```
-
 3. Add this line:
-
    ```bash
    export ANDROID_SDK_ROOT=~/Android/Sdk
    ```
-
 4. Press `Ctrl + X`, then `Y`, then `Enter` to save
 5. Run: `source ~/.bashrc`
 6. Verify by typing: `echo $ANDROID_SDK_ROOT`
@@ -824,150 +625,65 @@ This creates professional installers in the `dist-app/` folder. See [STANDALONE_
 ### Common Issues
 
 **"java: command not found" or "java --version" doesn't work**
-
 - Java didn't install correctly. Restart your computer and try the verification command again.
 - On Windows, you may need to restart Command Prompt after installation.
 
 **"node: command not found" or "npm: command not found"**
-
 - Node.js didn't install correctly. Restart your computer and try again.
 - On Windows, restart Command Prompt after installation.
 
 **"npm install" is very slow**
-
 - This is normal — it's downloading many dependencies. Be patient and let it finish.
 
 **"Cannot find module" errors when running `npm run dev`**
-
 - This can happen when `node_modules` is partially corrupted (e.g. a package was installed but its `dist/` folder is missing). A clean reinstall fixes it:
-
   ```bash
   rm -rf node_modules
   npm install
   ```
-
   On Windows, use `rmdir /s /q node_modules` instead of `rm -rf`.
 
 **Browser shows HTTPS certificate warning**
-
 - This is expected for local development. Click **Advanced** and proceed — it's safe.
 
 **"Chrome blocks opening certain sensitive directories"**
-
 - Store your notes in a subfolder (e.g., `~/Documents/Notes` instead of `~/Documents`)
 
 **Linux: AppImage shows a blank white window**
-
 - This is caused by the Vite build using absolute asset paths (`/assets/...`) which don't resolve correctly under `file://`. Rebuild from source — the fix is already included in the latest version:
-
   ```bash
   npm run build:electron:linux
   ```
 
 **Linux: git-server fails with "Failed to load native module: pty.node"**
-
 - `node-pty` ships prebuilt binaries that must match your system's Node.js version. Rebuild it:
-
   ```bash
   npm rebuild node-pty
   ```
-
 - If that fails, install build tools first:
-
   ```bash
   sudo apt-get install -y python3 make g++
   npm rebuild node-pty
   ```
 
 **Linux: AppImage git-server keeps trying ports 3001, 3002, 3003...**
-
 - Multiple stale git-server processes are running. Kill them all and restart:
-
   ```bash
   pkill -f 'git-server.mjs'
   ```
-
 - Then relaunch the AppImage.
-
-Since you're working on a personal project, adding a "Troubleshooting" or "Installation" section to your README is a great way to save your future self (or others) some serious headaches.
-
-Here is a clean, Markdown-formatted block you can copy and paste directly into your `README.md`.
-
----
-
-## 🛠 Troubleshooting: Docker Compose Issues
-
-If you encounter the error `urllib3.exceptions.URLSchemeUnknown: Not supported URL scheme http+docker` or `unknown flag: --build`, it is likely due to a conflict between an outdated Python-based Docker Compose (v1) and newer system libraries.
-
-### Recommended Fix: Install Docker Compose V2 (Plugin)
-
-The modern version of Docker Compose is a Go-based plugin that avoids Python dependency conflicts.
-
-1. **Remove the old version (optional but recommended):**
-
-    ```bash
-    sudo apt-get remove docker-compose
-    ```
-
-2. **Set up Docker's official repository:**
-
-    ```bash
-    # Add Docker's official GPG key:
-    sudo apt-get update
-    sudo apt-get install ca-certificates curl
-    sudo install -m 0755 -d /etc/apt/keyrings
-    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-    sudo chmod a+r /etc/apt/keyrings/docker.asc
-
-    # Add the repository to Apt sources:
-    echo \
-      "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-      $(. /etc/os-release && echo "$UBUNTU_CODENAME") stable" | \
-      sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-    ```
-
-3. **Install the Compose Plugin:**
-
-    ```bash
-    sudo apt-get update
-    sudo apt-get install docker-compose-plugin
-    ```
-
-4. **Verify the installation:**
-
-    ```bash
-    docker compose version
-    # Should output: Docker Compose version v2.x.x
-    ```
-
-5. **Run the project:**
-    Use the space syntax (`docker compose`) instead of the hyphenated one:
-
-    ```bash
-    docker compose up --build
-    ```
-
----
-
-### Quick Note for Pop!_OS / Ubuntu users
-
-If you prefer not to add external repositories, you can try `sudo apt install docker.io`, but the official Docker repository method above is the most reliable way to ensure you have the latest features and bug fixes.
-
----
 
 ---
 
 ### Verify Your Setup
 
 **Core app (required):**
-
 ```bash
 node --version             # Should show v20 or higher
 npm --version              # Should show v10 or higher
 ```
 
 **Security tools (optional):**
-
 ```bash
 java -version              # Should show Java 21 or higher
 apktool --version          # Should show the apktool version
@@ -977,7 +693,6 @@ echo %ANDROID_SDK_ROOT%    # Should show your SDK path (Windows)
 ```
 
 **Quick Checklist:**
-
 - [ ] Node.js installed and `node --version` shows v20+
 - [ ] npm installed and `npm --version` works
 - [ ] App starts with `npm run dev` and opens at `https://localhost:5173`
@@ -1018,11 +733,9 @@ The app runs over HTTPS locally so that the File System Access API (which allows
 2. On the host machine, the dev server already runs on all network interfaces when you run `npm run dev`
 
 3. From another device on the same network, open your browser and go to:
-
    ```
    https://192.168.1.100:5173
    ```
-
    (Replace `192.168.1.100` with your actual IP)
 
 4. Your browser will show a security warning — this is normal. Click **Advanced → Proceed** or **Accept Risk and Continue**
@@ -1038,7 +751,6 @@ The app runs over HTTPS locally so that the File System Access API (which allows
 All data lives in YAML frontmatter at the top of each `.md` file.
 
 ### Standard Note
-
 ```yaml
 ---
 tags:
@@ -1049,7 +761,6 @@ date: 2026-03-22
 ```
 
 ### Calendar Event / Meeting
-
 ```yaml
 ---
 tags:
@@ -1065,11 +776,9 @@ attendees:
   - Bob
 ---
 ```
-
 Any note with `start:` + `end:` appears in the Calendar view. Clicking it opens the note.
 
 ### Gantt Task
-
 ```yaml
 ---
 tags:
@@ -1089,7 +798,6 @@ status: in-progress
 ```
 
 ### Project
-
 ```yaml
 ---
 tags:
@@ -1104,7 +812,6 @@ status: active
 ```
 
 ### Recurring Event (ICS-style rrule)
-
 ```yaml
 ---
 type: event
@@ -1118,7 +825,6 @@ rrule: "FREQ=WEEKLY;BYDAY=MO,WE,FR"
 ## Templates
 
 See `templates/` folder for ready-to-use templates:
-
 - `daily-note.md` — Daily journal
 - `meeting.md` — Meeting notes with calendar frontmatter
 - `gantt-task.md` — Gantt chart task
@@ -1132,7 +838,6 @@ See `templates/` folder for ready-to-use templates:
 4. Credentials → Create OAuth 2.0 Client ID → Web application
 5. Add `http://localhost:5173` to Authorized redirect URIs
 6. Copy the Client ID and create `.env.local`:
-
    ```
    VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
    ```
@@ -1144,7 +849,6 @@ See `templates/` folder for ready-to-use templates:
 3. Add Redirect URI: `http://localhost:5173` (Single-page application)
 4. API permissions → Add `Calendars.Read` (Microsoft Graph, Delegated)
 5. Copy the Application (client) ID and add to `.env.local`:
-
    ```
    VITE_OUTLOOK_CLIENT_ID=your-azure-app-client-id
    ```

@@ -1,11 +1,12 @@
 import React, { useRef, useState, lazy, Suspense } from 'react'
-import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap } from 'lucide-react'
+import { FileText, Tag, Search, Moon, Sun, FolderOpen, ChevronLeft, ChevronRight, Github, Workflow, Bot, Zap, Code2, Globe, DollarSign, Shield, MessageSquare, Mic, HelpCircle, Music, SkipBack, SkipForward, Play, Pause, Accessibility, BookMarked, X, Pickaxe, SlidersHorizontal, Eye, EyeOff, GraduationCap, BookOpen, Settings, GitCompare, GitBranch } from 'lucide-react'
 import { useUiStore } from '../../stores/uiStore'
 import type { AppView } from '../../stores/uiStore'
 import { useVaultStore, isFsApiSupported } from '../../stores/vaultStore'
 import FileTree from './FileTree'
 import MusicPlayer from '../../features/music/MusicPlayer'
 import { useMusicStore } from '../../features/music/musicStore'
+import GlobalSettingsModal from '../GlobalSettingsModal'
 
 const MeetingNoteModal = lazy(() => import('../../features/meeting/MeetingNoteModal'))
 
@@ -181,6 +182,7 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section:
   { view: 'notes',    icon: <FileText size={18} />,   label: 'Notes',           section: 'Core' },
   { view: 'tags',     icon: <Tag size={18} />,          label: 'Tags',            section: 'Core' },
   { view: 'sync',     icon: <Github size={18} />,       label: 'Sync',            section: 'Core' },
+  { view: 'repos',    icon: <GitBranch size={18} />,    label: 'Repos',           section: 'Core' },
   { view: 'diagram',  icon: <Workflow size={18} />,     label: 'Diagrams',        section: 'Tools' },
   { view: 'code',     icon: <Code2 size={18} />,        label: 'Code',            section: 'Tools' },
   { view: 'web',      icon: <Globe size={18} />,         label: 'Web',             section: 'Tools' },
@@ -189,10 +191,12 @@ const NAV_ITEMS: { view: AppView; icon: React.ReactNode; label: string; section:
   { view: 'audio-to-text', icon: <Mic size={18} />,     label: 'Audio to Text',   section: 'Tools' },
   { view: 'security', icon: <Shield size={18} />,       label: 'Security',        section: 'Tools' },
   { view: 'minecraft', icon: <Pickaxe size={18} />,     label: 'Minecraft',       section: 'Tools' },
+  { view: 'vault-snapshot', icon: <GitCompare size={18} />, label: 'Snapshot',        section: 'Tools' },
   { view: 'finance',  icon: <DollarSign size={18} />,   label: 'Finance Tracker', section: 'Finances' },
   { view: 'communications', icon: <MessageSquare size={18} />, label: 'Communications', section: 'Communications' },
   { view: 'accessibility', icon: <Accessibility size={18} />, label: 'Accessibility',  section: 'Accessibility' },
   { view: 'academia', icon: <GraduationCap size={18} />, label: 'Teaching, Research & Service', section: 'Academia Related' },
+  { view: 'research', icon: <BookOpen size={18} />, label: 'Research References', section: 'Academia Related' },
   { view: 'help', icon: <HelpCircle size={18} />,       label: 'Help',            section: 'Help' },
 ]
 
@@ -266,6 +270,7 @@ export default function Sidebar() {
   const [showMusicPlayer, setShowMusicPlayer] = useState(false)
   const [showNoteMethods, setShowNoteMethods] = useState(false)
   const [showCustomize, setShowCustomize] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const { isPlaying, title, artist, sendCommand } = useMusicStore()
   const hasTrack = !!(title)
 
@@ -500,6 +505,14 @@ export default function Sidebar() {
           {sidebarOpen && 'Customize'}
         </button>
         <button
+          onClick={() => setShowSettings(true)}
+          className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 mb-1 transition-colors text-gray-600 dark:text-gray-400"
+          title="Global settings"
+        >
+          <Settings size={16} />
+          {sidebarOpen && 'Settings'}
+        </button>
+        <button
           onClick={toggleDarkMode}
           className="flex items-center gap-2 px-2 py-1.5 w-full rounded text-sm hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
           title="Toggle dark mode"
@@ -529,6 +542,11 @@ export default function Sidebar() {
       {/* Customize sidebar panel */}
       {showCustomize && (
         <CustomizeSidebarPanel onClose={() => setShowCustomize(false)} />
+      )}
+
+      {/* Global settings modal */}
+      {showSettings && (
+        <GlobalSettingsModal onClose={() => setShowSettings(false)} />
       )}
     </div>
   )

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type AppView = 'notes' | 'tags' | 'sync' | 'diagram' | 'ai' | 'gsd' | 'code' | 'web' | 'finance' | 'security' | 'communications' | 'help' | 'accessibility' | 'audio-to-text' | 'minecraft' | 'academia'
+export type AppView = 'notes' | 'tags' | 'sync' | 'repos' | 'diagram' | 'ai' | 'gsd' | 'code' | 'web' | 'finance' | 'security' | 'communications' | 'help' | 'accessibility' | 'audio-to-text' | 'minecraft' | 'academia' | 'research' | 'vault-snapshot'
 
 interface UiState {
   activeView: AppView
@@ -11,6 +11,7 @@ interface UiState {
   commandPaletteOpen: boolean
   hiddenNavItems: AppView[]
   collapsedSections: string[]
+  hiddenPanels: string[]
   setActiveView: (view: AppView) => void
   openTab: (path: string) => void
   closeTab: (path: string) => void
@@ -21,6 +22,8 @@ interface UiState {
   setCommandPaletteOpen: (open: boolean) => void
   toggleNavItemVisibility: (view: AppView) => void
   toggleSection: (section: string) => void
+  setPanelHidden: (panelId: string, hidden: boolean) => void
+  resetPanels: (namespace: string) => void
   // Getter for backward compat
   activeNotePath: string | null
 }
@@ -43,6 +46,15 @@ function loadHiddenNavItems(): AppView[] {
   }
 }
 
+function loadHiddenPanels(): string[] {
+  try {
+    const stored = localStorage.getItem('hiddenPanels')
+    return stored ? JSON.parse(stored) : []
+  } catch {
+    return []
+  }
+}
+
 export const useUiStore = create<UiState>((set, get) => ({
   activeView: 'notes',
   openTabs: [],
@@ -52,6 +64,7 @@ export const useUiStore = create<UiState>((set, get) => ({
   commandPaletteOpen: false,
   hiddenNavItems: loadHiddenNavItems(),
   collapsedSections: loadCollapsedSections(),
+  hiddenPanels: loadHiddenPanels(),
 
   get activeNotePath() {
     return get().activeTabPath
@@ -141,4 +154,21 @@ export const useUiStore = create<UiState>((set, get) => ({
     return { darkMode: next }
   }),
   setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
+
+  setPanelHidden: (panelId, hidden) => set((s) => {
+    const next = hidden
+      ? s.hiddenPanels.includes(panelId)
+        ? s.hiddenPanels
+        : [...s.hiddenPanels, panelId]
+      : s.hiddenPanels.filter(id => id !== panelId)
+    localStorage.setItem('hiddenPanels', JSON.stringify(next))
+    return { hiddenPanels: next }
+  }),
+
+  resetPanels: (namespace) => set((s) => {
+    const prefix = `${namespace}:`
+    const next = s.hiddenPanels.filter(id => !id.startsWith(prefix))
+    localStorage.setItem('hiddenPanels', JSON.stringify(next))
+    return { hiddenPanels: next }
+  }),
 }))

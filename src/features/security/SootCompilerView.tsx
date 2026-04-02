@@ -399,29 +399,30 @@ function CFGVisualization({ cfg }: { cfg: MethodCFG }) {
 
 export default function SootCompilerView() {
   const [apkPath, setApkPath] = useState('')
-  const [outputDir, setOutputDir] = useState('/root/host-home/sootOutput')
+  const [outputDir, setOutputDir] = useState('')
   const [androidJarsPath, setAndroidJarsPath] = useState('')
   const [status, setStatus] = useState<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
   const [browsingApk, setBrowsingApk] = useState(false)
   const [browsingOut, setBrowsingOut] = useState(false)
   const [browsingJars, setBrowsingJars] = useState(false)
-  const [isDragging, setIsDragging] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [pickerOpen, setPickerOpen] = useState<'apk' | 'output' | 'jars' | null>(null)
   const [cfgData, setCFGData] = useState<MethodCFG[] | null>(null)
   const [selectedCFGIndex, setSelectedCFGIndex] = useState(0)
   const [displayTab, setDisplayTab] = useState<DisplayTab>('output')
-  const [detectedPlatformsPath, setDetectedPlatformsPath] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
   const apkFileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    fetch('/security/install/list')
+    fetch('/security/host-info')
       .then(r => r.json())
-      .then(d => { if (d.detectedPlatformsPath) setDetectedPlatformsPath(d.detectedPlatformsPath) })
-      .catch(() => {})
+      .then(d => {
+        const mount = d.containerMount || '/root/host-home'
+        setOutputDir(`${mount}/sootOutput`)
+      })
+      .catch(() => { setOutputDir('/root/host-home/sootOutput') })
   }, [])
 
   useEffect(() => {
@@ -439,17 +440,13 @@ export default function SootCompilerView() {
     setPickerOpen(null)
   }
 
-  const uploadApkFile = async (file: File) => {
+  const onApkFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
     setBrowsingApk(true)
     try {
       const data = await file.arrayBuffer()
-      const bytes = new Uint8Array(data)
-      let binary = ''
-      const chunkSize = 8192
-      for (let i = 0; i < bytes.length; i += chunkSize) {
-        binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
-      }
-      const base64 = btoa(binary)
+      const base64 = btoa(String.fromCharCode(...new Uint8Array(data)))
       const res = await fetch('/security/apk/upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -459,23 +456,11 @@ export default function SootCompilerView() {
       const { apkPath: uploaded } = await res.json()
       if (uploaded) setApkPath(uploaded)
     } catch (err) {
-      setLogs(prev => [...prev, `ERROR: Upload failed — ${err instanceof Error ? err.message : 'Unknown error'}`])
+      console.error('APK upload failed', err)
     } finally {
       setBrowsingApk(false)
+      e.target.value = ''
     }
-  }
-
-  const onApkFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (file) await uploadApkFile(file)
-    e.target.value = ''
-  }
-
-  const onDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-    const file = e.dataTransfer.files?.[0]
-    if (file && file.name.endsWith('.apk')) await uploadApkFile(file)
   }
 
   const runSoot = async () => {
@@ -641,7 +626,6 @@ export default function SootCompilerView() {
         title="Select APK File"
         dirOnly={false}
         fileFilter=".apk"
-        startPath="/root/host-home"
       />
       <PathPickerModal
         isOpen={pickerOpen === 'output'}
@@ -649,7 +633,6 @@ export default function SootCompilerView() {
         onSelect={onPickerSelect}
         title="Select Output Directory"
         dirOnly={true}
-        startPath="/root/host-home"
       />
       <PathPickerModal
         isOpen={pickerOpen === 'jars'}
@@ -657,7 +640,6 @@ export default function SootCompilerView() {
         onSelect={onPickerSelect}
         title="Select Android Platforms Directory"
         dirOnly={true}
-        startPath="/root/host-home"
       />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
 
@@ -678,19 +660,7 @@ export default function SootCompilerView() {
           <div className="space-y-3">
             <div>
               <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">APK File</label>
-
-              {/* Drop zone */}
-              <div
-                onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
-                onDragLeave={() => setIsDragging(false)}
-                onDrop={onDrop}
-                onClick={() => apkFileInputRef.current?.click()}
-                className={`mb-2 flex items-center justify-center h-16 rounded border-2 border-dashed cursor-pointer transition-colors ${
-                  isDragging
-                    ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-900/20'
-                    : 'border-gray-300 dark:border-gray-600 hover:border-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/10'
-                }`}
-              >
+              <div className="flex gap-2">
                 <input
                   ref={apkFileInputRef}
                   type="file"
@@ -698,17 +668,11 @@ export default function SootCompilerView() {
                   className="hidden"
                   onChange={onApkFileSelected}
                 />
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {browsingApk ? 'Uploading…' : 'Drop .apk here or click to upload'}
-                </p>
-              </div>
-
-              <div className="flex gap-2">
                 <input
                   type="text"
                   value={apkPath}
                   onChange={e => setApkPath(e.target.value)}
-                  placeholder="e.g. /root/host-home/Downloads/app.apk"
+                  placeholder="e.g. /tmp/apk_xyz/target.apk"
                   className="flex-1 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400"
                 />
                 <button
@@ -718,7 +682,7 @@ export default function SootCompilerView() {
                   className="flex items-center gap-1.5 px-3 py-2 text-sm rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-surface-700 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-surface-600 transition-colors disabled:opacity-50"
                 >
                   <FolderOpen size={14} />
-                  {browsingApk ? 'Uploading…' : 'Browse'}
+                  {browsingApk ? 'Opening…' : 'Browse'}
                 </button>
               </div>
             </div>
@@ -765,15 +729,6 @@ export default function SootCompilerView() {
                   {browsingJars ? 'Opening…' : 'Browse'}
                 </button>
               </div>
-              {!androidJarsPath && (
-                detectedPlatformsPath
-                  ? <p className="mt-1 text-[10px] text-emerald-600 dark:text-emerald-400">
-                      ✓ Auto-detected: <span className="font-mono">{detectedPlatformsPath}</span>
-                    </p>
-                  : <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
-                      No platforms found — specify a path or install via the Setup tab
-                    </p>
-              )}
             </div>
           </div>
 

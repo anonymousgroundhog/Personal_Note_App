@@ -9,42 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     nmap \
-    wget \
-    unzip \
     && pip3 install --no-cache-dir scapy \
     && rm -rf /var/lib/apt/lists/*
-
-# Install Android command-line tools and download platform android.jar files for Soot
-# Platforms are baked into the image so no host SDK mount is required
-ENV ANDROID_SDK_ROOT=/opt/android-sdk
-RUN mkdir -p ${ANDROID_SDK_ROOT}/cmdline-tools && \
-    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip && \
-    unzip -q /tmp/cmdline-tools.zip -d /tmp/cmdline-tools-extracted && \
-    mv /tmp/cmdline-tools-extracted/cmdline-tools ${ANDROID_SDK_ROOT}/cmdline-tools/latest && \
-    rm -rf /tmp/cmdline-tools.zip /tmp/cmdline-tools-extracted
-
-ENV PATH="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin:${PATH}"
-
-# Accept licenses and install platform android.jar files for API 28–35
-RUN yes | sdkmanager --licenses > /dev/null 2>&1 && \
-    sdkmanager \
-      "platforms;android-28" \
-      "platforms;android-29" \
-      "platforms;android-30" \
-      "platforms;android-31" \
-      "platforms;android-32" \
-      "platforms;android-33" \
-      "platforms;android-34" \
-      "platforms;android-35"
-
-# Configure git to trust mounted host directories (fixes dubious ownership error when accessing host repos)
-# This is safe for development since mounts are local; production should use proper git identity
-RUN git config --global --add safe.directory '*'
-
-# Configure SSH to accept new GitHub host keys without prompting
-RUN mkdir -p /root/.ssh && \
-    printf "Host github.com\n  StrictHostKeyChecking accept-new\n  IdentityFile /home/spsand1/.ssh/github\n  IdentityFile /home/spsand1/.ssh/id_rsa\n  IdentityFile /home/spsand1/.ssh/id_ed25519\n" > /root/.ssh/config && \
-    chmod 700 /root/.ssh && chmod 600 /root/.ssh/config
 
 # Set JAVA_HOME dynamically — works on both amd64 (Linux/Windows) and arm64 (Apple Silicon)
 RUN echo "export JAVA_HOME=$(dirname $(dirname $(readlink -f $(which java))))" >> /etc/profile

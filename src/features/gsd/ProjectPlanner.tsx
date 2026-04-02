@@ -7,6 +7,7 @@ import {
 } from 'lucide-react'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useGsdStore } from './gsdStore'
+import { useGsdVaultSync } from './useGsdVaultSync'
 import type { GsdProject } from './gsdStore'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -158,6 +159,39 @@ function emptyPlan(): ProjectPlan {
     reportingFrequency: '',
     actionItems: [],
   }
+}
+
+// ── Vault helpers ────────────────────────────────────────────────────────────
+
+function slugifyPlanName(name: string, fallback: string | null): string {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60)
+  return slug || fallback || 'untitled'
+}
+
+function buildPlanMarkdown(plan: ProjectPlan): string {
+  const lines: string[] = [
+    `# ${plan.projectName || 'Untitled Project'}`,
+    '',
+    `**Start:** ${plan.startDate || '—'}   **End:** ${plan.endDate || '—'}`,
+    '',
+  ]
+  if (plan.description) {
+    lines.push('## Description', plan.description, '')
+  }
+  if (plan.objectives.some(s => s.trim())) {
+    lines.push('## Objectives', ...plan.objectives.filter(s => s.trim()).map(s => `- ${s}`), '')
+  }
+  if (plan.successCriteria.some(s => s.trim())) {
+    lines.push('## Success Criteria', ...plan.successCriteria.filter(s => s.trim()).map(s => `- ${s}`), '')
+  }
+  if (plan.milestones.length) {
+    lines.push('## Milestones', ...plan.milestones.map(m => `- **${m.date}** ${m.title}: ${m.description}`), '')
+  }
+  if (plan.actionItems.length) {
+    lines.push('## Action Items', ...plan.actionItems.map(a => `- [ ] ${a.title} (${a.owner || 'unassigned'}, due ${a.dueDate || 'TBD'})`), '')
+  }
+  lines.push('<!-- GSD Plan Data — do not edit below this line -->', '```json', JSON.stringify(plan, null, 2), '```')
+  return lines.join('\n')
 }
 
 function planFromGsdProject(
@@ -1077,8 +1111,12 @@ export default function ProjectPlanner() {
   const activePlanRef = useRef<ProjectPlan | null>(null)
   activePlanRef.current = activePlan
 
-  const { rootHandle, fallbackMode } = useVaultStore()
+  // Vault write debounce
+  const vaultWriteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const { rootHandle, fallbackMode, saveNote, readNote } = useVaultStore()
   const hasVault = !!(rootHandle || fallbackMode)
+  const { scheduleWrite } = useGsdVaultSync()
 
   const plan = activePlan!
 
@@ -1087,6 +1125,8 @@ export default function ProjectPlanner() {
     if (!planToSync.projectName.trim()) return planToSync
     const store = useGsdStore.getState()
     const synced = syncPlanToGsd(planToSync, store)
+    // Trigger vault write for GSD data after syncing
+    scheduleWrite()
     // Reflect any gsdItemId changes back into React state
     setActivePlan(prev => {
       if (!prev || prev.gsdProjectId === synced.gsdProjectId &&
@@ -1094,7 +1134,17 @@ export default function ProjectPlanner() {
       return synced
     })
     return synced
-  }, [])
+  }, [scheduleWrite])
+
+  // ── Vault write helper (600ms debounce) ──────────────────────────────────────
+  const schedulePlanVaultWrite = useCallback((p: ProjectPlan) => {
+    if (!hasVault || !p.projectName.trim()) return
+    if (vaultWriteTimerRef.current) clearTimeout(vaultWriteTimerRef.current)
+    vaultWriteTimerRef.current = setTimeout(() => {
+      const slug = slugifyPlanName(p.projectName, p.gsdProjectId)
+      saveNote(`gsd/plans/${slug}.md`, buildPlanMarkdown(p)).catch(console.error)
+    }, 600)
+  }, [hasVault, saveNote])
 
   // ── Debounced sync on actionItems / projectName / description changes ────────
   // Serialize to string so the effect fires when values inside the array change,
@@ -1117,6 +1167,7 @@ export default function ProjectPlanner() {
   // ── Sync on unmount (tab switch / navigation away) ──────────────────────────
   useEffect(() => {
     return () => {
+      if (vaultWriteTimerRef.current) clearTimeout(vaultWriteTimerRef.current)
       const current = activePlanRef.current
       if (current?.projectName.trim()) {
         doSync(current)
@@ -1129,10 +1180,11 @@ export default function ProjectPlanner() {
       if (!prev) return prev
       const next = { ...prev, ...partial }
       savePlanToStorage(next)
+      schedulePlanVaultWrite(next)
       return next
     })
     setSaved(false)
-  }, [])
+  }, [schedulePlanVaultWrite])
 
   const handleAddRole = useCallback((role: string) => {
     setAllRoles(prev => {
@@ -1170,6 +1222,11 @@ export default function ProjectPlanner() {
     try {
       // Ensure latest sync before exporting
       doSync(plan)
+      // Write to vault if open
+      if (hasVault) {
+        const slug = slugifyPlanName(plan.projectName, plan.gsdProjectId)
+        await saveNote(`gsd/plans/${slug}.md`, buildPlanMarkdown(plan))
+      }
       // Export PDF
       await exportPdf(plan)
       setSaved(true)
@@ -1180,8 +1237,26 @@ export default function ProjectPlanner() {
     }
   }
 
+  // Try to load a plan from vault first
+  const handleSelectProject = useCallback(async (p: ProjectPlan) => {
+    if (hasVault && p.projectName.trim()) {
+      try {
+        const slug = slugifyPlanName(p.projectName, p.gsdProjectId)
+        const raw = await readNote(`gsd/plans/${slug}.md`)
+        const match = raw.match(/```json\n([\s\S]*?)\n```\s*$/)
+        if (match) {
+          openPlan(JSON.parse(match[1]) as ProjectPlan)
+          return
+        }
+      } catch {
+        // Fall through to localStorage plan
+      }
+    }
+    openPlan(p)
+  }, [hasVault, readNote])
+
   if (!activePlan) {
-    return <ProjectPicker onSelect={openPlan} onNew={() => {
+    return <ProjectPicker onSelect={handleSelectProject} onNew={() => {
       const saved = loadPlanFromStorage(null)
       openPlan(saved ?? emptyPlan())
     }} />

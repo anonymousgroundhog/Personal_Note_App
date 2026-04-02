@@ -17,6 +17,11 @@ export interface GHRepo {
   private: boolean
   html_url: string
   clone_url: string
+  description?: string
+  stargazers_count?: number
+  forks_count?: number
+  updated_at?: string
+  language?: string | null
 }
 
 export interface GHBranch {
@@ -36,7 +41,14 @@ export interface GHTreeEntry {
 export interface GHCommit {
   sha: string
   html_url: string
-  commit: { message: string; tree: { sha: string } }
+  commit: {
+    message: string
+    tree: { sha: string }
+    author?: { name: string; email: string; date: string }
+    committer?: { name: string; email: string; date: string }
+  }
+  author?: { login: string; avatar_url: string }
+  committer?: { login: string; avatar_url: string }
 }
 
 export interface GHBlob {
@@ -170,6 +182,17 @@ export async function createRef(
     method: 'POST',
     body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
   })
+}
+
+// ── Activity / Commits ────────────────────────────────────────────────────────
+
+export async function listCommits(
+  token: string,
+  owner: string,
+  repo: string,
+  limit = 10
+): Promise<GHCommit[]> {
+  return ghFetch<GHCommit[]>(token, `/repos/${owner}/${repo}/commits?per_page=${limit}`)
 }
 
 // ── Remote tree for comparison ────────────────────────────────────────────────

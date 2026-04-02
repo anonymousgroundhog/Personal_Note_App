@@ -450,7 +450,7 @@ function PromptGuidePanel({ onClose }: { onClose: () => void }) {
 // ── Main AiView ──────────────────────────────────────────────────────────────
 export default function AiView() {
   const {
-    activeProfileId, config, models, modelsLoading,
+    activeProfileId, config, models, modelsLoading, modelsError,
     messages, streaming, streamingContent,
     sendMessage, improvePrompt, clearChat, abortStream, fetchModels,
   } = useAiStore()
@@ -661,7 +661,24 @@ export default function AiView() {
             ) : !connected ? (
               <>
                 <p className="text-base font-medium text-gray-500 dark:text-gray-400">Not connected</p>
-                <p className="text-sm text-center max-w-sm">Could not load models from <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">{config.serverUrl}</code>. Check the URL and API key, then reconnect.</p>
+                <p className="text-sm text-center max-w-sm text-gray-500 dark:text-gray-400">
+                  {modelsError ?? `Could not load models from ${config.serverUrl}`}
+                </p>
+                <div className="flex items-center gap-2 mt-1">
+                  <button
+                    onClick={fetchModels}
+                    disabled={modelsLoading}
+                    className="flex items-center gap-2 px-4 py-2 bg-accent-500 text-white rounded-lg hover:bg-accent-600 text-sm disabled:opacity-50"
+                  >
+                    <RefreshCw size={14} className={modelsLoading ? 'animate-spin' : ''} /> Reconnect
+                  </button>
+                  <button
+                    onClick={() => setShowSettings(true)}
+                    className="flex items-center gap-2 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-surface-700 text-sm"
+                  >
+                    <Settings size={14} /> Change Server
+                  </button>
+                </div>
               </>
             ) : (
               <>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useCallback } from 'react'
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import {
   Inbox, Zap, Clock, Cloud, CheckCircle2, FolderOpen,
   Plus, X, Calendar, User, AlertCircle, Edit2, Trash2,
@@ -8,6 +8,7 @@ import {
   ArrowLeft, FileText,
 } from 'lucide-react'
 import { useGsdStore } from './gsdStore'
+import { useGsdVaultSync } from './useGsdVaultSync'
 import type { GsdItem, GsdItemStatus, GsdPriority, GsdProject } from './gsdStore'
 import { useVaultStore } from '../../stores/vaultStore'
 import { parseGanttTasks } from '../gantt/ganttParser'
@@ -544,8 +545,9 @@ function ProjectEditor({ project, onClose }: { project?: GsdProject; onClose: ()
 type GsdTab = 'planner' | 'inbox' | 'next' | 'waiting' | 'someday' | 'done' | 'projects' | 'review' | 'help' | 'gantt' | 'tasks' | 'calendar'
 
 export default function GsdView() {
-  const { items, projects, updateItem, syncFromGantt } = useGsdStore()
+  const { items, projects, contexts, updateItem, syncFromGantt } = useGsdStore()
   const { index } = useVaultStore()
+  const { scheduleWrite } = useGsdVaultSync()
   const [activeTab, setActiveTab] = useState<GsdTab>('inbox')
   const [editingItem, setEditingItem] = useState<GsdItem | null>(null)
   const [editingProject, setEditingProject] = useState<GsdProject | 'new' | null>(null)
@@ -565,6 +567,15 @@ export default function GsdView() {
       return next
     })
   }, [])
+
+  // Sync GSD store changes to vault (if open)
+  const storeKey = useMemo(
+    () => `${items.length}:${projects.length}:${contexts.length}:${items.reduce((s, i) => s + i.updatedAt, 0)}`,
+    [items, projects, contexts]
+  )
+  useEffect(() => {
+    scheduleWrite()
+  }, [storeKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Derive Gantt projects from vault
   const ganttProjects = useMemo(() => parseGanttTasks(index), [index])

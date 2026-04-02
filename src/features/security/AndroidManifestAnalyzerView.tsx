@@ -134,7 +134,6 @@ export default function AndroidManifestAnalyzerView() {
         title="Select AndroidManifest.xml"
         dirOnly={false}
         fileFilter=".xml"
-        startPath="/root/host-home"
       />
       <div className="flex flex-col gap-4 p-4 flex-1 overflow-hidden">
         {/* File Path Input */}

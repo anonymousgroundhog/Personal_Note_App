@@ -3,6 +3,7 @@ import Sidebar from './components/Layout/Sidebar'
 import EditorView from './features/editor/EditorView'
 import TagBrowser from './features/tags/TagBrowser'
 import SyncView from './features/sync/SyncView'
+import ReposView from './features/repos/ReposView'
 import DiagramEditor from './features/diagram/DiagramEditor'
 import AiView from './features/ai/AiView'
 import GsdView from './features/gsd/GsdView'
@@ -16,6 +17,8 @@ import AccessibilityView from './features/accessibility/AccessibilityView'
 import AudioToTextView from './features/audio/AudioToTextView'
 import MinecraftView from './features/minecraft/MinecraftView'
 import AcademiaView from './features/academia/AcademiaView'
+import ResearchView from './features/research/ResearchView'
+import VaultSnapshotView from './features/vault-snapshot/VaultSnapshotView'
 import CommandPalette from './features/search/CommandPalette'
 import { useUiStore } from './stores/uiStore'
 import { useVaultStore, isFsApiSupported } from './stores/vaultStore'
@@ -78,6 +81,8 @@ export default function App() {
       <main className="flex-1 flex overflow-hidden h-full">
         {activeView === 'sync' ? (
           <SyncView />
+        ) : activeView === 'repos' ? (
+          <ReposView />
         ) : activeView === 'diagram' ? (
           <DiagramEditor />
         ) : activeView === 'ai' ? (
@@ -102,6 +107,10 @@ export default function App() {
           <MinecraftView />
         ) : activeView === 'academia' ? (
           <AcademiaView />
+        ) : activeView === 'research' ? (
+          <ResearchView />
+        ) : activeView === 'vault-snapshot' ? (
+          <VaultSnapshotView />
         ) : activeView === 'help' ? (
           <HelpView />
         ) : !hasVault ? (

@@ -37,6 +37,28 @@ const DEFAULT_PORT = 3001
 const PORT = parseInt(process.env.GIT_SERVER_PORT || DEFAULT_PORT, 10)
 const execFileAsync = promisify(execFile)
 
+// ── Docker Path Remapping ──────────────────────────────────────────────────────────
+// When running in Docker, the host home directory is mounted at /root/host-home
+// but the app sends paths from the host (e.g., /home/username/...).
+// This function remaps those paths to the Docker mount point.
+const HOST_HOME = process.env.HOST_HOME || ''
+const IN_DOCKER = existsSync('/.dockerenv') || process.env.VITE_DOCKER === 'true'
+
+function remapDockerPath(hostPath) {
+  if (!IN_DOCKER || !HOST_HOME) return hostPath
+  // Example: /home/spsand1/Documents/... → /root/host-home/Documents/...
+  const hostHomeBasename = HOST_HOME.split('/').filter(Boolean).pop()
+  if (hostPath.includes(hostHomeBasename)) {
+    // Replace the host home path with the Docker mount point
+    return hostPath.replace(new RegExp(`^.*${hostHomeBasename}`), `/root/host-home`)
+  }
+  return hostPath
+}
+
+if (IN_DOCKER) {
+  console.log(`[docker] Running in Docker with HOST_HOME=${HOST_HOME}`)
+}
+
 // ── Security Suite Configuration ───────────────────────────────────────────────────
 const SECURITY_DIR = join(homedir(), '.note-app-security')
 const SOOT_INSTALL_DIR = join(SECURITY_DIR, 'soot')
@@ -187,7 +209,22 @@ function validateArgs(args) {
 }
 
 // ── Run git, collect output ────────────────────────────────────────────────────
-function runGit(cwd, args, onData, onEnd) {
+async function runGit(cwd, args, onData, onEnd) {
+  // Pre-configure git to trust this directory (needed in Docker with mixed ownership)
+  // This handles the "detected dubious ownership" error
+  if (IN_DOCKER) {
+    try {
+      await new Promise((resolve) => {
+        const proc = spawn('git', ['config', '--global', '--add', 'safe.directory', cwd], {
+          stdio: 'ignore',
+        })
+        proc.on('exit', resolve)
+      })
+    } catch (e) {
+      // Ignore errors from pre-config
+    }
+  }
+
   const proc = spawn('git', args, {
     cwd,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
@@ -235,6 +272,11 @@ async function browseDirectory(startPath) {
   })
 }
 
+// Prevent a single timed-out or failed AI request from crashing the whole server.
+process.on('unhandledRejection', (reason) => {
+  console.error('[server] Unhandled rejection (continuing):', reason?.message ?? reason)
+})
+
 // ── HTTP server ────────────────────────────────────────────────────────────────
 const server = createServer(async (req, res) => {
   setCors(res)
@@ -268,7 +310,15 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/browse/ls') {
     setCors(res)
     try {
-      const reqPath = resolve(url.searchParams.get('path') || homedir())
+      const rawPath = url.searchParams.get('path')
+      // When no path given, default to the host-home mount in Docker so the
+      // browser picker opens directly in the user's home directory on the host.
+      const defaultPath = (IN_DOCKER && !rawPath && existsSync('/root/host-home'))
+        ? '/root/host-home'
+        : homedir()
+      let reqPath = resolve(rawPath || defaultPath)
+      // Apply Docker path remapping if needed
+      reqPath = remapDockerPath(reqPath)
       const entries = readdirSync(reqPath, { withFileTypes: true })
       const dirs = entries
         .filter(e => e.isDirectory() && !e.name.startsWith('.'))
@@ -290,15 +340,40 @@ const server = createServer(async (req, res) => {
     try {
       const body = await parseBody(req)
       const args = validateArgs(body.args)
-      const cwd = resolve(body.cwd || '.')
-      if (!existsSync(cwd)) throw new Error(`directory not found: ${cwd}`)
+      let cwd = resolve(body.cwd || '.')
+
+      // If path doesn't exist, try without trailing slash
+      if (!existsSync(cwd) && cwd.endsWith('/')) {
+        cwd = cwd.slice(0, -1)
+      }
+      // If still doesn't exist, try with home dir expansion
+      if (!existsSync(cwd) && body.cwd?.startsWith('~')) {
+        cwd = resolve(body.cwd.replace('~', homedir()))
+      }
+
+      // Apply Docker path remapping if running in container
+      const originalCwd = cwd
+      cwd = remapDockerPath(cwd)
+      if (cwd !== originalCwd) {
+        console.log(`[/git] Docker path remapping: ${originalCwd} → ${cwd}`)
+      }
+
+      // Try to run git anyway (existsSync might fail in containers, but git might work)
+      // Log the issue if existsSync fails but we'll attempt the command
+      const cwdExists = existsSync(cwd)
+      if (!cwdExists) {
+        console.warn(`[/git] Directory check failed for ${cwd}, but attempting git command anyway`)
+      }
+
       runGit(cwd, args, null, (result) => {
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(result))
       })
     } catch (e) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: e.message }))
+      const response = { error: e.message }
+      if (e.details) response.details = e.details
+      res.end(JSON.stringify(response))
     }
     return
   }
@@ -308,8 +383,29 @@ const server = createServer(async (req, res) => {
     try {
       const body = await parseBody(req)
       const args = validateArgs(body.args)
-      const cwd = resolve(body.cwd || '.')
-      if (!existsSync(cwd)) throw new Error(`directory not found: ${cwd}`)
+      let cwd = resolve(body.cwd || '.')
+
+      // If path doesn't exist, try without trailing slash
+      if (!existsSync(cwd) && cwd.endsWith('/')) {
+        cwd = cwd.slice(0, -1)
+      }
+      // If still doesn't exist, try with home dir expansion
+      if (!existsSync(cwd) && body.cwd?.startsWith('~')) {
+        cwd = resolve(body.cwd.replace('~', homedir()))
+      }
+
+      // Apply Docker path remapping if running in container
+      const originalCwd = cwd
+      cwd = remapDockerPath(cwd)
+      if (cwd !== originalCwd) {
+        console.log(`[/git/stream] Docker path remapping: ${originalCwd} → ${cwd}`)
+      }
+
+      // Try to run git anyway (existsSync might fail in containers, but git might work)
+      const cwdExists = existsSync(cwd)
+      if (!cwdExists) {
+        console.warn(`[/git/stream] Directory check failed for ${cwd}, but attempting git command anyway`)
+      }
 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -573,12 +669,12 @@ const server = createServer(async (req, res) => {
       for (const path of ['/api/models', '/v1/models']) {
         let upstream
         try {
-          upstream = await fetch(`${base}${path}`, {
-            headers,
-            signal: AbortSignal.timeout(10000),
-          })
+          const ctrl = new AbortController()
+          const t = setTimeout(() => ctrl.abort(), 10000)
+          upstream = await fetch(`${base}${path}`, { headers, signal: ctrl.signal })
+          clearTimeout(t)
         } catch (e) {
-          lastErr = e.message
+          lastErr = e.name === 'AbortError' ? 'connection timeout' : e.message
           continue
         }
         if (upstream.status === 401 || upstream.status === 403) {
@@ -619,7 +715,12 @@ const server = createServer(async (req, res) => {
 
     for (const [path, isOllama] of chatPaths) {
       let r
-      const connectTimeout = AbortSignal.timeout(15000)
+      // Use a plain AbortController so we can cancel the connect attempt after
+      // 30s without the signal firing again mid-stream (AbortSignal.timeout fires
+      // at wall-clock time regardless of whether streaming has started, causing
+      // an unhandled DOMException that crashes the server).
+      const connectController = new AbortController()
+      const connectTimer = setTimeout(() => connectController.abort(), 30000)
 
       // Ollama /api/chat uses a different request shape
       let reqBody
@@ -638,10 +739,12 @@ const server = createServer(async (req, res) => {
           method: 'POST',
           headers,
           body: reqBody,
-          signal: connectTimeout,
+          signal: connectController.signal,
         })
+        clearTimeout(connectTimer)
       } catch (e) {
-        lastChatErr = e.name === 'TimeoutError' ? `connection timeout on ${path}` : e.message
+        clearTimeout(connectTimer)
+        lastChatErr = e.name === 'AbortError' ? `connection timeout on ${path}` : e.message
         continue
       }
       if (r.status === 401 || r.status === 403) {
@@ -2524,8 +2627,6 @@ sys.stdout.flush()
     if (!pathStr) return pathStr
     // Already under the mount — leave it alone
     if (pathStr.startsWith('/root/host-home')) return pathStr
-    // Container-internal paths (e.g. uploaded APKs in /tmp) — leave them alone
-    if (pathStr.startsWith('/tmp') || pathStr.startsWith('/root/') || pathStr.startsWith('/app')) return pathStr
     // Looks like an absolute host path (/home/..., /Users/..., etc.)
     // Strip the leading slash so we can join under the mount point
     if (pathStr.startsWith('/')) return join('/root/host-home', pathStr)
@@ -3022,16 +3123,15 @@ sys.stdout.flush()
 
       apkPath = toHostPath(expandPath(apkPath))
       outputDir = toHostPath(expandPath(outputDir || '/root/host-home/sootOutput'))
-      // Resolve android jars: prefer what the user specified, then baked-in image SDK,
-      // then host SDK mount, then in-container downloaded stubs
+      // Resolve android jars: prefer what the user specified, then host SDK mount, then
+      // the in-container downloaded platforms (works on Windows where host SDK may not exist)
       androidJarsPath = expandPath(androidJarsPath || '')
       if (!androidJarsPath || !existsSync(androidJarsPath)) {
         const candidates = [
-          '/opt/android-sdk/platforms',
           '/root/Android/Sdk/platforms',
           PLATFORMS_INSTALL_DIR,
         ]
-        androidJarsPath = candidates.find(p => existsSync(p) && readdirSync(p).length > 0) || androidJarsPath || '/opt/android-sdk/platforms'
+        androidJarsPath = candidates.find(p => existsSync(p) && readdirSync(p).length > 0) || androidJarsPath || '/root/Android/Sdk/platforms'
       }
 
       if (!existsSync(apkPath)) {
@@ -3464,10 +3564,6 @@ sys.stdout.flush()
     const latestJarPath = join(SOOT_INSTALL_DIR, `soot-all-${latestVersion}.jar`)
     const sootInstalled = existsSync(latestJarPath)
 
-    // Detect the android platforms directory the same way soot/run does
-    const platformsCandidates = ['/opt/android-sdk/platforms', '/root/Android/Sdk/platforms', PLATFORMS_INSTALL_DIR]
-    const detectedPlatformsPath = platformsCandidates.find(p => existsSync(p) && readdirSync(p).length > 0) || null
-
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       sootVersions: SOOT_VERSIONS,
@@ -3476,7 +3572,6 @@ sys.stdout.flush()
       platformsInstallDir: PLATFORMS_INSTALL_DIR,
       sootInstalled,
       latestSootPath: sootInstalled ? latestJarPath : null,
-      detectedPlatformsPath,
     }))
     return
   }
