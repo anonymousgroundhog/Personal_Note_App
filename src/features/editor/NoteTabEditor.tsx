@@ -698,6 +698,7 @@ export default function NoteTabEditor({ path, isActive }: Props) {
           </div>
         )}
       </div>
+
     </div>
   )
 }

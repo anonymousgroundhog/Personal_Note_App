@@ -3,6 +3,7 @@ import React, {
 } from 'react'
 import { useUiStore } from '../../stores/uiStore'
 import { useVaultStore } from '../../stores/vaultStore'
+import MermaidDiagram from '../../components/MermaidDiagram'
 import { nodeShapePath } from './diagramUtils'
 import { computeMindmapLayout, getMindmapNodeColor, getMindmapBranchColor } from './mindmapLayout'
 import { MINDMAP_THEMES, getActiveTheme } from './mindmapThemes'
@@ -184,12 +185,51 @@ function WebviewNode({
   )
 }
 
+// ─── Mermaid canvas node overlay ─────────────────────────────────────────────
+
+function MermaidCanvasNode({ node, viewport, onMouseDown, scrollDivRef }: {
+  node: { id: string; x: number; y: number; w: number; h: number; mermaidCode?: string }
+  viewport: { x: number; y: number; scale: number }
+  onMouseDown: (e: React.MouseEvent) => void
+  scrollDivRef: (el: HTMLDivElement | null) => void
+}) {
+  const left   = node.x * viewport.scale + viewport.x
+  const top    = node.y * viewport.scale + viewport.y
+  const width  = node.w * viewport.scale
+  const height = node.h * viewport.scale
+  return (
+    <div className="absolute" style={{ left, top, width, height, pointerEvents: 'none' }}>
+      {node.mermaidCode ? (
+        <div
+          ref={scrollDivRef}
+          onMouseDown={onMouseDown}
+          style={{
+            width: node.w,
+            height: node.h,
+            overflow: 'auto',
+            pointerEvents: 'auto',
+            transform: `scale(${viewport.scale})`,
+            transformOrigin: 'top left',
+            cursor: 'grab',
+          }}
+        >
+          <MermaidDiagram code={node.mermaidCode} />
+        </div>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-xs text-gray-400 bg-gray-50 dark:bg-surface-800">
+          No diagram code
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type NodeShape =
   | 'rect' | 'diamond' | 'circle' | 'parallelogram' | 'cylinder' | 'hexagon'
   | 'server' | 'cloud' | 'router' | 'firewall' | 'laptop' | 'phone'
-  | 'note' | 'webview'
+  | 'note' | 'webview' | 'mermaid'
 
 export interface DiagramNode {
   id: string
@@ -205,6 +245,7 @@ export interface DiagramNode {
   notePath?: string
   isRoot?: boolean
   webviewUrl?: string
+  mermaidCode?: string
 }
 
 export interface DiagramEdge {
@@ -432,10 +473,52 @@ export default function DiagramEditor() {
   // ── Props panel always visible ──
   const [showProps, setShowProps] = useState(true)
 
+  // ── Resizable panel widths ──
+  const [paletteWidth, setPaletteWidth] = useState(76)
+  const [propsWidth, setPropsWidth] = useState(208) // w-52 = 208px
+  const paletteResizeRef = useRef<{ startX: number; startW: number } | null>(null)
+  const propsResizeRef   = useRef<{ startX: number; startW: number } | null>(null)
+
+  const startPaletteResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    paletteResizeRef.current = { startX: e.clientX, startW: paletteWidth }
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - paletteResizeRef.current!.startX
+      setPaletteWidth(Math.max(60, Math.min(200, paletteResizeRef.current!.startW + delta)))
+    }
+    const onUp = () => {
+      paletteResizeRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [paletteWidth])
+
+  const startPropsResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    propsResizeRef.current = { startX: e.clientX, startW: propsWidth }
+    const onMove = (ev: MouseEvent) => {
+      const delta = ev.clientX - propsResizeRef.current!.startX
+      setPropsWidth(Math.max(160, Math.min(400, propsResizeRef.current!.startW - delta)))
+    }
+    const onUp = () => {
+      propsResizeRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [propsWidth])
+
   // ── Embed modal ──
   const [showEmbed, setShowEmbed] = useState(false)
   const [embedNote, setEmbedNote] = useState('')
   const [embedMsg, setEmbedMsg] = useState('')
+
+  // ── Mermaid import modal ──
+  const [showMermaidModal, setShowMermaidModal] = useState(false)
+  const [mermaidInput, setMermaidInput] = useState('')
 
   // ── SVG / container refs ──
   const svgRef = useRef<SVGSVGElement>(null)
@@ -446,6 +529,22 @@ export default function DiagramEditor() {
 
   // ── Palette drag ──
   const paletteDragRef = useRef<{ shape: NodeShape } | null>(null)
+
+  // ── Mermaid overlay refs (node.id → scroll div) for autofit ──
+  const mermaidNodeRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const handleAutofitMermaid = useCallback((nodeId: string) => {
+    const scrollDiv = mermaidNodeRefs.current.get(nodeId)
+    if (!scrollDiv) return
+    const w = scrollDiv.scrollWidth
+    const h = scrollDiv.scrollHeight
+    if (!w || !h) return
+    updateDiagram({
+      nodes: diagram.nodes.map(n =>
+        n.id === nodeId ? { ...n, w, h } : n
+      ),
+    })
+  }, [diagram, updateDiagram])
 
   // ── Notes panel state ──
   const [notesExpanded, setNotesExpanded] = useState(true)
@@ -523,6 +622,10 @@ export default function DiagramEditor() {
 
     if (editingLabel) { commitLabel(); return }
 
+    // Open props panel when clicking a mermaid node so code is immediately editable
+    const clickedNode = diagram.nodes.find(n => n.id === nodeId)
+    if (clickedNode?.shape === 'mermaid') setShowProps(true)
+
     const isSelected = selectedNodeIds.has(nodeId)
     let ids: string[]
     if (e.shiftKey) {
@@ -554,6 +657,10 @@ export default function DiagramEditor() {
     if (!node) return
     if (node.shape === 'webview') {
       setEditingWebviewUrl({ id: nodeId, value: node.webviewUrl ?? '' })
+      return
+    }
+    if (node.shape === 'mermaid') {
+      setShowProps(true)
       return
     }
     setEditingLabel({ type: 'node', id: nodeId, value: node.label })
@@ -1095,6 +1202,11 @@ export default function DiagramEditor() {
             }`}>
             ⚙ Props
           </button>
+          <button onClick={() => setShowMermaidModal(true)}
+            className="px-2.5 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+            title="Import Mermaid diagram">
+            ⬡ Mermaid
+          </button>
         </div>
       </div>
 
@@ -1159,7 +1271,12 @@ export default function DiagramEditor() {
 
         {/* ── Shape palette or mindmap hint panel ── */}
         {!diagram.mindmapMode ? (
-          <div className="w-[76px] flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex flex-col py-2 overflow-y-auto">
+          <div className="flex-shrink-0 border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 flex flex-col py-2 overflow-y-auto relative" style={{ width: paletteWidth }}>
+            {/* Resize handle */}
+            <div
+              className="absolute top-0 right-0 w-1.5 h-full cursor-col-resize z-10 hover:bg-accent-500/30 active:bg-accent-500/50 transition-colors"
+              onMouseDown={startPaletteResize}
+            />
 
             {/* Notes import section */}
             <div className="mb-2 px-1">
@@ -1395,7 +1512,30 @@ export default function DiagramEditor() {
                     onMouseDown={e => handleNodeMouseDown(e, node.id)}
                     onDoubleClick={e => handleNodeDblClick(e, node.id)}
                   >
-                    {node.shape === 'note' ? (
+                    {node.shape === 'mermaid' ? (
+                      /* ── Mermaid diagram node (rendered as overlay) ── */
+                      <>
+                        <rect x={node.x} y={node.y} width={node.w} height={node.h}
+                          fill={darkMode ? '#1e1e2e' : '#f8f8ff'}
+                          stroke={isConnSrc ? '#22d3ee' : isSel ? colors.nodeStrokeSel : colors.nodeStroke}
+                          strokeWidth={isConnSrc ? sw + 1.5 : isSel ? sw + 1 : sw}
+                          strokeDasharray={isConnSrc ? '5 3' : undefined}
+                          rx={6} />
+                        {isConnTarget && (
+                          <rect x={node.x} y={node.y} width={node.w} height={node.h}
+                            fill="none" stroke="#22d3ee" strokeWidth={2.5} opacity={0.7} rx={6}
+                            style={{ pointerEvents: 'none' }} />
+                        )}
+                        {isSel && [
+                          [node.x, node.y], [node.x + node.w, node.y],
+                          [node.x, node.y + node.h], [node.x + node.w, node.y + node.h],
+                        ].map(([hx, hy], i) => (
+                          <rect key={i} x={hx - 4} y={hy - 4} width={8} height={8}
+                            rx={2} fill="white" stroke={colors.nodeStrokeSel} strokeWidth={1.5}
+                            style={{ pointerEvents: 'none' }} />
+                        ))}
+                      </>
+                    ) : node.shape === 'note' ? (
                       /* ── Sticky note ── */
                       <>
                         {/* Note body */}
@@ -1668,6 +1808,16 @@ export default function DiagramEditor() {
             )
           })}
 
+          {/* ── Mermaid diagram overlays ── */}
+          {diagram.nodes.filter(n => n.shape === 'mermaid').map(node => (
+            <MermaidCanvasNode key={node.id} node={node} viewport={viewport}
+              onMouseDown={e => handleNodeMouseDown(e, node.id)}
+              scrollDivRef={el => {
+                if (el) mermaidNodeRefs.current.set(node.id, el)
+                else mermaidNodeRefs.current.delete(node.id)
+              }} />
+          ))}
+
           {/* Note content hover popup */}
           {notePopup && (() => {
             const popupNode = diagram.nodes.find(n => n.id === notePopup.nodeId)
@@ -1727,7 +1877,12 @@ export default function DiagramEditor() {
 
         {/* ── Properties panel ── */}
         {showProps && (
-          <div className="w-52 flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 overflow-y-auto p-3 space-y-4 text-xs">
+          <div className="flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-surface-800 overflow-y-auto p-3 space-y-4 text-xs relative" style={{ width: propsWidth }}>
+            {/* Resize handle */}
+            <div
+              className="absolute top-0 left-0 w-1.5 h-full cursor-col-resize z-10 hover:bg-accent-500/30 active:bg-accent-500/50 transition-colors"
+              onMouseDown={startPropsResize}
+            />
 
             {/* Connect defaults */}
             <div>
@@ -1825,6 +1980,24 @@ export default function DiagramEditor() {
                       <span className="w-6 text-right text-gray-500">{selectedNode.strokeWidth ?? 1.5}</span>
                     </div>
                   </div>
+                  {selectedNode.shape === 'mermaid' && (
+                    <div className="space-y-1.5">
+                      <div>
+                        <label className={labelCls}>Diagram code</label>
+                        <textarea
+                          value={selectedNode.mermaidCode ?? ''}
+                          onChange={e => updateSelectedNodes({ mermaidCode: e.target.value })}
+                          rows={8}
+                          className="w-full text-[11px] font-mono border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 resize-none focus:outline-none focus:ring-1 focus:ring-accent-500"
+                        />
+                      </div>
+                      <button
+                        onClick={() => handleAutofitMermaid(selectedNode.id)}
+                        className="w-full px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                        title="Resize node to fit the rendered diagram"
+                      >⊡ Autofit to diagram</button>
+                    </div>
+                  )}
                   <button
                     onClick={() => {
                       const id = selectedNode.id
@@ -1968,6 +2141,88 @@ export default function DiagramEditor() {
           </div>
         )}
       </div>
+
+      {/* ── Mermaid import modal ── */}
+      {showMermaidModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={e => { if (e.target === e.currentTarget) setShowMermaidModal(false) }}
+        >
+          <div className="bg-white dark:bg-surface-800 rounded-xl shadow-2xl w-[700px] max-w-[95vw] max-h-[90vh] flex flex-col gap-3 p-5 overflow-hidden">
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-base">⬡</span>
+              <span className="font-semibold text-sm text-gray-800 dark:text-gray-100 flex-1">Import Mermaid Diagram</span>
+              <button
+                onClick={() => setShowMermaidModal(false)}
+                className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >×</button>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">
+              Paste your Mermaid code below to preview it as a rendered diagram.
+            </p>
+            <div className="flex gap-3 flex-1 min-h-0">
+              <div className="flex flex-col flex-1 min-w-0">
+                <label className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Mermaid code</label>
+                <textarea
+                  autoFocus
+                  value={mermaidInput}
+                  onChange={e => setMermaidInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') setShowMermaidModal(false) }}
+                  placeholder={'graph TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[End]\n  B -->|No| A'}
+                  className="flex-1 text-xs font-mono border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-gray-50 dark:bg-surface-700 text-gray-800 dark:text-gray-200 resize-none focus:outline-none focus:ring-2 focus:ring-accent-500 placeholder-gray-300 dark:placeholder-gray-600"
+                />
+              </div>
+              <div className="flex flex-col flex-1 min-w-0">
+                <label className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">Preview</label>
+                <div className="flex-1 overflow-auto border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-surface-900 p-2">
+                  {mermaidInput.trim()
+                    ? <MermaidDiagram code={mermaidInput.trim()} />
+                    : <div className="h-full flex items-center justify-center text-xs text-gray-300 dark:text-gray-600">Preview will appear here</div>
+                  }
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 flex-shrink-0">
+              <button
+                onClick={() => setShowMermaidModal(false)}
+                className="px-3 py-1.5 text-xs rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!mermaidInput.trim()}
+                onClick={() => {
+                  const code = mermaidInput.trim()
+                  if (!code) return
+                  const W = 400
+                  const H = 300
+                  // Place near centre of current viewport
+                  const cx = (-viewport.x + (containerRef.current?.clientWidth  ?? 600) / 2) / viewport.scale
+                  const cy = (-viewport.y + (containerRef.current?.clientHeight ?? 400) / 2) / viewport.scale
+                  const newNode: DiagramNode = {
+                    id: uid(),
+                    x: snap(cx - W / 2), y: snap(cy - H / 2),
+                    w: W, h: H,
+                    shape: 'mermaid',
+                    label: 'Mermaid Diagram',
+                    color: darkMode ? '#1e1e2e' : '#f8f8ff',
+                    textColor: darkMode ? '#e5e7eb' : '#1f2937',
+                    strokeWidth: 1.5,
+                    mermaidCode: code,
+                  }
+                  updateDiagram({ nodes: [...diagram.nodes, newNode] })
+                  setSelectedNodeIds(new Set([newNode.id]))
+                  setMermaidInput('')
+                  setShowMermaidModal(false)
+                }}
+                className="px-3 py-1.5 text-xs rounded-lg bg-accent-500 hover:bg-accent-600 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Insert into Canvas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

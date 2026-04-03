@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react'
-import { FileText, Plus, Search, Edit3, Clock, X, Network } from 'lucide-react'
+import { FileText, Plus, Search, Edit3, Clock, X, Network, FileUp } from 'lucide-react'
 import NoteTabEditor from './NoteTabEditor'
 import GraphView from '../graph/GraphView'
+import PdfImport from './PdfImport'
 import { useVaultStore } from '../../stores/vaultStore'
 import { useUiStore } from '../../stores/uiStore'
 import { todayIso } from '../../lib/fs/pathUtils'
@@ -11,6 +12,7 @@ export default function EditorView() {
   const { createNote, index } = useVaultStore()
   const [searchQuery, setSearchQuery] = useState('')
   const [subView, setSubView] = useState<'notes' | 'graph'>('notes')
+  const [showPdfImport, setShowPdfImport] = useState(false)
 
   const handleNewNote = async () => {
     const name = prompt('Note name:')
@@ -73,11 +75,19 @@ export default function EditorView() {
   // Show landing view when no tabs are open
   if (openTabs.length === 0) {
     return (
+      <>
       <div className="flex-1 flex flex-col bg-white dark:bg-surface-900 overflow-hidden">
         <SubViewTabs />
         {/* Header bar */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => setShowPdfImport(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 rounded hover:bg-gray-50 dark:hover:bg-surface-700 transition-colors text-sm"
+            >
+              <FileUp size={14} />
+              Import PDF
+            </button>
             <button
               onClick={handleNewNote}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors text-sm"
@@ -161,6 +171,8 @@ export default function EditorView() {
           )}
         </div>
       </div>
+      {showPdfImport && <PdfImport onClose={() => setShowPdfImport(false)} />}
+      </>
     )
   }
 
@@ -198,6 +210,16 @@ export default function EditorView() {
             </div>
           )
         })}
+        <div className="ml-auto flex-shrink-0">
+          <button
+            onClick={() => setShowPdfImport(true)}
+            className="flex items-center gap-1 px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 text-gray-500 dark:text-gray-400 rounded hover:bg-gray-50 dark:hover:bg-surface-700 transition-colors"
+            title="Import PDF as note"
+          >
+            <FileUp size={12} />
+            Import PDF
+          </button>
+        </div>
       </div>
 
       {/* Editors container */}
@@ -206,6 +228,7 @@ export default function EditorView() {
           <NoteTabEditor key={path} path={path} isActive={path === activeTabPath} />
         ))}
       </div>
+      {showPdfImport && <PdfImport onClose={() => setShowPdfImport(false)} />}
     </div>
   )
 }

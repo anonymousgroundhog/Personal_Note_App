@@ -122,7 +122,8 @@
       "Bash(/home/spsand1/Documents/Projects/GitHub/Personal_Note_App/.env:*)",
       "Bash(docker compose:*)",
       "Bash(cp /home/sean/Documents/Projects/Personal/Personal_Note_App/.env.example /home/sean/Documents/Projects/Personal/Personal_Note_App/.env)",
-      "Bash(sed -i \"s|HOST_HOME=/home/username|HOST_HOME=$HOME|\" /home/sean/Documents/Projects/Personal/Personal_Note_App/.env)"
+      "Bash(sed -i \"s|HOST_HOME=/home/username|HOST_HOME=$HOME|\" /home/sean/Documents/Projects/Personal/Personal_Note_App/.env)",
+      "Bash(npm show:*)"
     ]
   }
 }
