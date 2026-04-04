@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef } from 'react'
 import { FileText, Plus, Search, Edit3, Clock, X, Network, FileUp } from 'lucide-react'
 import NoteTabEditor from './NoteTabEditor'
 import GraphView from '../graph/GraphView'
@@ -13,10 +13,17 @@ export default function EditorView() {
   const [searchQuery, setSearchQuery] = useState('')
   const [subView, setSubView] = useState<'notes' | 'graph'>('notes')
   const [showPdfImport, setShowPdfImport] = useState(false)
+  const [newNoteName, setNewNoteName] = useState<string | null>(null)
+  const newNoteInputRef = useRef<HTMLInputElement>(null)
 
-  const handleNewNote = async () => {
-    const name = prompt('Note name:')
-    if (!name) return
+  const handleNewNote = () => {
+    setNewNoteName('')
+    setTimeout(() => newNoteInputRef.current?.focus(), 0)
+  }
+
+  const handleNewNoteSubmit = async (name: string) => {
+    setNewNoteName(null)
+    if (!name.trim()) return
     const filename = name.endsWith('.md') ? name : `${name}.md`
     const today = todayIso()
     const template = `---\ntags: []\ndate: ${today}\n---\n\n# ${name.replace(/\.md$/, '')}\n\n`
@@ -88,13 +95,43 @@ export default function EditorView() {
               <FileUp size={14} />
               Import PDF
             </button>
-            <button
-              onClick={handleNewNote}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors text-sm"
-            >
-              <Plus size={14} />
-              New Note
-            </button>
+            {newNoteName !== null ? (
+              <form
+                onSubmit={e => { e.preventDefault(); handleNewNoteSubmit(newNoteName) }}
+                className="flex items-center gap-1"
+              >
+                <input
+                  ref={newNoteInputRef}
+                  type="text"
+                  value={newNoteName}
+                  onChange={e => setNewNoteName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Escape') setNewNoteName(null) }}
+                  placeholder="Note name…"
+                  className="px-2 py-1.5 text-sm border border-accent-500 rounded bg-white dark:bg-surface-700 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-accent-500 w-40"
+                />
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors text-sm"
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewNoteName(null)}
+                  className="px-2 py-1.5 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={handleNewNote}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-accent-500 text-white rounded hover:bg-accent-600 transition-colors text-sm"
+              >
+                <Plus size={14} />
+                New Note
+              </button>
+            )}
           </div>
         </div>
         {/* Search */}
